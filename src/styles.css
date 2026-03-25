@@ -1,0 +1,252 @@
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  --card-border: #e5e7eb;
+  --card-bg: #fff;
+  --section-title: #374151;
+  --hint: #6b7280;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  padding: 20px 24px;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.page h2 {
+  margin: 0 0 4px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #111;
+}
+
+.page .pageHint {
+  color: var(--hint);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+.pageHint kbd {
+  padding: 2px 6px;
+  font-size: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  background: #f3f4f6;
+}
+
+.card {
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: var(--card-bg);
+}
+
+.cardTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--section-title);
+  margin: 0 0 12px;
+  letter-spacing: 0.02em;
+}
+
+.cardSection {
+  margin-bottom: 16px;
+}
+
+.cardSection:last-child {
+  margin-bottom: 0;
+}
+
+.sectionLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--hint);
+  margin-bottom: 6px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.rowGap {
+  gap: 16px;
+}
+
+.labelBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.labelBlock .sectionLabel {
+  margin-bottom: 0;
+}
+
+label {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+input[type='range'] {
+  width: 160px;
+  min-width: 120px;
+}
+
+input[type='number'] {
+  width: 64px;
+  text-align: center;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+input[type='color'] {
+  width: 32px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.hint {
+  color: var(--hint);
+  font-size: 12px;
+}
+
+.btn {
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.btn:hover {
+  background: #f9fafb;
+}
+
+.btnPrimary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.btnPrimary:hover {
+  background: var(--primary-hover);
+}
+
+.chapterRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  position: relative;
+}
+
+.chapterAction {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  white-space: nowrap;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.chapterRow:hover .chapterAction {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chapterMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Overlay 工具栏 ---- */
+.overlayToolbar {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.52);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.overlayToolbarGroup {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.overlayToolbarDivider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.25);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.overlayToolBtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.95);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+.overlayToolBtn > svg {
+  display: block;
+}
+
+.overlayToolBtn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.overlayToolBtn:active {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.overlayToolBtnDanger:hover {
+  background: rgba(239, 68, 68, 0.4);
+}
+

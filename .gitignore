@@ -1,0 +1,27 @@
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.DS_Store?
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Coverage / misc
+coverage/
+*.tsbuildinfo
+.cache/
