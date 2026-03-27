@@ -16,11 +16,30 @@ function main() {
   const installJs = path.join(electronPkg, 'install.js')
   const distDir = path.join(electronPkg, 'dist')
 
+  // Platform-specific binary location inside `node_modules/electron/dist/`
+  // so we can detect incomplete installs.
+  const electronBinary = (() => {
+    if (process.platform === 'darwin') {
+      return path.join(
+        distDir,
+        'Electron.app',
+        'Contents',
+        'MacOS',
+        'Electron'
+      )
+    }
+    if (process.platform === 'win32') {
+      return path.join(distDir, 'electron.exe')
+    }
+    // Linux/others
+    return path.join(distDir, 'electron')
+  })()
+
   // If electron isn't installed yet, do nothing (npm will handle it).
   if (!exists(electronPkg) || !exists(installJs)) return
 
-  // If dist already exists, assume OK.
-  if (exists(distDir)) return
+  // If the binary exists, assume OK.
+  if (exists(electronBinary)) return
 
   // If the binary is missing, run electron's installer.
   // Prefer mirror via npm config or env.

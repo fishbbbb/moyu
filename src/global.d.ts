@@ -33,6 +33,7 @@ declare global {
       webOpen: (args: { url: string }) => Promise<unknown>
       webExtract: () => Promise<unknown>
       webExtractAtUrl: (args: { url: string }) => Promise<unknown>
+    webExtractStructuredAtUrl: (args: { url: string }) => Promise<unknown>
       webExtractBookDetail: () => Promise<unknown>
       webClose: () => Promise<unknown>
 

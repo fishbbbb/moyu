@@ -187,9 +187,10 @@ export function OverlayView() {
   }
 
   // 与 JSX 样式保持一致的 padding（用于 rows/cols 与像素宽高的互算）
-  const PAD_X = 10
-  const PAD_Y = 10
-  const EXTRA_H = 12
+  // 收紧文字与边框的留白，减少“框内空白感”
+  const PAD_X = 6
+  const PAD_Y = 6
+  const EXTRA_H = 8
   // 给右侧留一点余量，避免不同平台的次像素/阴影导致“半个字被裁切”
   const COL_FIT_SAFETY_PX = 0
 
@@ -385,9 +386,10 @@ export function OverlayView() {
     let off: null | (() => void) = null
     let offBounds: null | (() => void) = null
     let offStep: null | (() => void) = null
+    let disposed = false
 
     async function init() {
-      off = window.api?.overlayOnSession?.((next) => {
+      const offSessionCandidate = window.api?.overlayOnSession?.((next) => {
         const s = next as any
         if (s && typeof s === 'object' && Array.isArray(s.lines) && s.lines.length > 0) {
           const autoPending = autoAdvanceRef.current
@@ -417,8 +419,11 @@ export function OverlayView() {
           setPlaying(false)
         }
       }) ?? null
+      if (disposed) offSessionCandidate?.()
+      else off = offSessionCandidate
 
       const raw = (await window.api?.overlayGetSession?.()) as any
+      if (disposed) return
       if (raw && typeof raw === 'object' && Array.isArray(raw.lines) && raw.lines.length > 0) {
         setSession(raw as OverlaySession)
         setRawLines(raw.lines)
@@ -444,6 +449,7 @@ export function OverlayView() {
       }
 
       const b = (await window.api?.overlayGetBounds?.()) as any
+      if (disposed) return
       if (b && typeof b.width === 'number' && typeof b.height === 'number') {
         setBounds({ width: b.width, height: b.height })
       }
@@ -451,7 +457,7 @@ export function OverlayView() {
       // 监听主进程广播的窗口尺寸变化（包含系统边框拖拽/双击缩放等），用于：
       // - 触发 canvas 重新设置 width（避免拉伸压扁）
       // - 让 effectiveCols 等逻辑使用最新可用宽度
-      offBounds =
+      const offBoundsCandidate =
         window.api?.overlayOnBounds?.((bb) => {
           // 拖拽过程中由 ResizeObserver/本地 rAF 跟进尺寸，忽略主进程广播避免双通道抖动
           if (resizeRef.current?.active) return
@@ -460,9 +466,11 @@ export function OverlayView() {
             setBounds({ width: x.width, height: x.height })
           }
         }) ?? null
+      if (disposed) offBoundsCandidate?.()
+      else offBounds = offBoundsCandidate
 
       // 按“实际显示行”翻页：避免主进程按 rawLines 长度 clamp 导致翻页失效/错判到头
-      offStep =
+      const offStepCandidate =
         window.api?.overlayOnStepDisplay?.((payload) => {
           const p = payload as any
           const delta = Math.trunc(Number(p?.delta ?? 0))
@@ -511,10 +519,13 @@ export function OverlayView() {
             return Math.max(0, Math.min(maxIdx, next))
           })
         }) ?? null
+      if (disposed) offStepCandidate?.()
+      else offStep = offStepCandidate
     }
 
     void init()
     return () => {
+      disposed = true
       off?.()
       offBounds?.()
       offStep?.()
@@ -880,6 +891,10 @@ export function OverlayView() {
       const nextX = r.dir.x < 0 ? Math.round(r.startWinX - (nextW - r.startW)) : r.startWinX
       const nextY = r.dir.y < 0 ? Math.round(r.startWinY - (nextH - r.startH)) : r.startWinY
       pendingResizeRef.current = { w: nextW, h: nextH, x: nextX, y: nextY }
+      // 拖拽中实时预览“行/列 -> 边框高度/宽度”，让框体跟手；
+      // 字号不变，真正配置写入仍在 mouseup，避免中途抖动和频繁写盘。
+      const d = calcRowsColsFromBounds({ width: nextW, height: nextH, fontSize: curCfg.fontSize })
+      setPreviewRowsCols((prev) => (prev && prev.rows === d.rows && prev.cols === d.cols ? prev : d))
       if (!resizeRafRef.current) {
         resizeRafRef.current = requestAnimationFrame(flushResizeFrame)
       }

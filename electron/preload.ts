@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
   webOpen: (args: { url: string }) => ipcRenderer.invoke('web:open', args),
   webExtract: () => ipcRenderer.invoke('web:extract'),
   webExtractAtUrl: (args: { url: string }) => ipcRenderer.invoke('web:extractAtUrl', args),
+  webExtractStructuredAtUrl: (args: { url: string }) => ipcRenderer.invoke('web:extractStructuredAtUrl', args),
   webExtractBookDetail: () => ipcRenderer.invoke('web:extractBookDetail'),
   webClose: () => ipcRenderer.invoke('web:close'),
 
@@ -118,6 +119,7 @@ export type Api = typeof globalThis & {
     webOpen: (args: { url: string }) => Promise<unknown>
     webExtract: () => Promise<unknown>
     webExtractAtUrl: (args: { url: string }) => Promise<unknown>
+    webExtractStructuredAtUrl: (args: { url: string }) => Promise<unknown>
     webExtractBookDetail: () => Promise<unknown>
     webClose: () => Promise<unknown>
 

@@ -524,8 +524,8 @@ export function MainView() {
     const url = String(sourceUrl ?? '').trim()
     if (!url) return null
     setNotice('正在提取章节正文…（首次进入该章节会稍慢一点）')
-    const res = (await window.api?.webExtractAtUrl?.({ url })) as any
-    const contentText = String(res?.contentText ?? '').trim()
+    const res = (await window.api?.webExtractStructuredAtUrl?.({ url })) as any
+    const contentText = String(res?.content?.textContent ?? '').trim()
     if (!contentText) return null
     await window.api?.libraryUpdateItemContent?.({ itemId, contentText })
     if (activeBookId) await loadBook(activeBookId)
@@ -1101,14 +1101,14 @@ export function MainView() {
                   </button>
                   <button
                     className="btn"
-                    onClick={() => void window.api?.overlayStepDisplay?.(-Math.max(1, Math.floor(cfg.rows || 1)))}
+                    onClick={() => void window.api?.overlayStepDisplay?.(-1)}
                     title="上一页"
                   >
                     ‹ 上一页
                   </button>
                   <button
                     className="btn"
-                    onClick={() => void window.api?.overlayStepDisplay?.(Math.max(1, Math.floor(cfg.rows || 1)))}
+                    onClick={() => void window.api?.overlayStepDisplay?.(1)}
                     title="下一页"
                   >
                     下一页 ›

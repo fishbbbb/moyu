@@ -20,6 +20,7 @@ import {
   updateItemContent,
   upsertProgress
 } from './db'
+import { WebContentExtractor } from './webContentExtractor'
 
 let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
@@ -39,6 +40,10 @@ function getWebImportUserAgent() {
 function webExtractErr(code: string, message: string) {
   // ipcRenderer.invoke 传递 Error 时通常只保留 message，因此把 code 编进 message 里。
   return new Error(`WEB_EXTRACT::${code}::${message}`)
+}
+
+function isWebExtractLoadTimeout(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('WEB_EXTRACT::LOAD_TIMEOUT')
 }
 
 async function waitWebContentsReady(wc: Electron.WebContents, timeoutMs = 20000) {
@@ -489,7 +494,15 @@ ipcMain.handle('web:extract', async () => {
     throw webExtractErr('NO_WEB_WINDOW', '未检测到已打开的网页窗口，请先点击“打开网页”。')
   }
   const wc = webWindow.webContents
-  await waitWebContentsReady(wc)
+  try {
+    await waitWebContentsReady(wc)
+  } catch (e) {
+    if (isWebExtractLoadTimeout(e)) {
+      console.info('[web:extract] waitWebContentsReady LOAD_TIMEOUT, continuing DOM extract', wc.getURL())
+    } else {
+      throw e
+    }
+  }
 
   // 触发一次懒加载（常见于“滚动后才填充正文/图片占位”页面）
   try {
@@ -549,6 +562,18 @@ ipcMain.handle('web:extract', async () => {
   const title = String(res?.title ?? '')
   const contentText = String(res?.contentText ?? '').trim()
   const readyState = String(res?.readyState ?? '')
+  const preview80 = contentText.slice(0, 80)
+  console.info(
+    '[web:extract]',
+    'url=',
+    wc.getURL(),
+    'readyState=',
+    readyState,
+    'len=',
+    contentText.length,
+    'preview=',
+    preview80
+  )
 
   let domain: string | null = null
   try {
@@ -656,6 +681,73 @@ ipcMain.handle('web:extractAtUrl', async (_evt, args: { url: string }) => {
   const previewLines = contentText.split('\\n').map((s: string) => s.trim()).filter(Boolean)
   const preview = previewLines.slice(0, 12).join('\\n')
   return { title, url: pageUrl, domain, contentText, preview, extractor: 'dom-text' }
+})
+
+
+ipcMain.handle('web:extractStructuredAtUrl', async (_evt, args: { url: string }) => {
+  const url = String(args?.url ?? '').trim()
+  if (!/^https?:\/\//i.test(url)) throw webExtractErr('INVALID_URL', '无效 URL。')
+
+  const w = await loadUrlInWebWindow(url)
+  w.show()
+  const wc = w.webContents
+  await waitWebContentsReady(wc)
+
+  try {
+    await wc.executeJavaScript(`(() => new Promise((resolve) => {
+      let step = 0;
+      const max = 6;
+      const tick = () => {
+        step += 1;
+        window.scrollTo(0, document.body ? document.body.scrollHeight : 0);
+        if (step >= max) {
+          setTimeout(() => {
+            window.scrollTo(0, 0);
+            resolve(true);
+          }, 200);
+          return;
+        }
+        setTimeout(tick, 180);
+      };
+      tick();
+    }))()`, true)
+  } catch {
+    // ignore
+  }
+
+  const page = (await wc.executeJavaScript(
+    `({ url: location.href || '', html: document.documentElement.outerHTML || '', title: document.title || '' })`,
+    true
+  )) as { url: string; html: string; title: string }
+
+  const extractor = new WebContentExtractor({ minTextLength: 200 })
+  const extracted = extractor.extractCurrentPage(page.url || url, page.html || '')
+  const nav = extractor.detectNavigation(page.html || '', page.url || url)
+  const toc = extractor.detectTOC(page.url || url, page.html || '')
+
+  if (!extracted.textContent || extracted.length < 120) {
+    throw webExtractErr('NO_MAIN_CONTENT', '正文提取失败或正文过短。')
+  }
+
+  return {
+    url: page.url || url,
+    title: extracted.title || page.title || '未命名网页',
+    content: {
+      title: extracted.title || page.title || '未命名网页',
+      content: extracted.content,
+      textContent: extracted.textContent,
+      excerpt: extracted.textContent.slice(0, 180),
+      author: undefined,
+      publishedDate: undefined,
+      wordCount: extracted.length
+    },
+    chapters: toc.entries || [],
+    nextChapterUrl: nav.nextUrl,
+    prevChapterUrl: nav.prevUrl,
+    tocUrlCandidate: toc.tocUrlCandidate,
+    isTocPage: toc.isTocPage,
+    extractor: 'readability'
+  }
 })
 
 ipcMain.handle('web:extractBookDetail', async () => {
