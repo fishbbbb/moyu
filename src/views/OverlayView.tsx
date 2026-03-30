@@ -25,6 +25,7 @@ type OverlaySession = {
 }
 
 const LS = { cfg: 'overlay:cfg', cfgLegacy: 'demo:cfg' } as const
+const LS_FONT_FAMILY = 'overlay:fontFamily' as const
 /** 阅读条最多显示行数（与拖动缩放/设置/工具栏一致） */
 
 function getJson<T>(key: string, fallback: T): T {
@@ -723,6 +724,17 @@ export function OverlayView() {
   useEffect(() => {
     // 让 overlay 页面本身“看不见多余 UI”，只留一行
     document.body.style.background = 'transparent'
+    const applyFont = (v: string | null) => {
+      const next = typeof v === 'string' ? v : ''
+      document.body.style.fontFamily = next
+    }
+    applyFont(localStorage.getItem(LS_FONT_FAMILY))
+    function onStorage(e: StorageEvent) {
+      if (e.key !== LS_FONT_FAMILY) return
+      applyFont(e.newValue)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
   }, [])
 
   useEffect(() => {

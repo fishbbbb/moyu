@@ -16,6 +16,7 @@ type OverlayConfig = {
 }
 
 const LS = { cfg: 'overlay:cfg', cfgLegacy: 'demo:cfg' } as const
+const LS_FONT_FAMILY = 'overlay:fontFamily' as const
 const LS_TOOLBAR = 'overlay:toolbar' as const
 
 type ToolbarKey =
@@ -123,6 +124,29 @@ export function OverlaySettingsView() {
     }
   })
 
+  useEffect(() => {
+    document.documentElement.classList.add('overlayAuxHost')
+    document.body.classList.add('overlayAuxHost')
+    return () => {
+      document.documentElement.classList.remove('overlayAuxHost')
+      document.body.classList.remove('overlayAuxHost')
+    }
+  }, [])
+
+  useEffect(() => {
+    const applyFont = (v: string | null) => {
+      const next = typeof v === 'string' ? v : ''
+      document.body.style.fontFamily = next
+    }
+    applyFont(localStorage.getItem(LS_FONT_FAMILY))
+    function onStorage(e: StorageEvent) {
+      if (e.key !== LS_FONT_FAMILY) return
+      applyFont(e.newValue)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
   const cpmHint = useMemo(() => calcCpmFromSpeedMs({ cols: cfg.cols, linesPerTick: cfg.linesPerTick, speedMs: cfg.speedMs }), [cfg.cols, cfg.linesPerTick, cfg.speedMs])
 
   function getTextMetrics(input: { fontSize: number }) {
@@ -208,6 +232,7 @@ export function OverlaySettingsView() {
         height: '100vh',
         padding: 12,
         boxSizing: 'border-box',
+        background: 'transparent',
         // 让“空白背景”可拖拽移动窗口；内部滚动区/控件会覆盖为 no-drag
         WebkitAppRegion: 'drag'
         } as any

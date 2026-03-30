@@ -1,6 +1,7 @@
 import { BrowserWindow, app, globalShortcut, ipcMain, screen } from 'electron'
 import path from 'node:path'
 import {
+  deleteBook,
   createGroup,
   deleteBooks,
   deleteGroup,
@@ -12,15 +13,17 @@ import {
   importTxtBook,
   importWebItem,
   listBooks,
+  searchBooks,
   listGroups,
   moveBooks,
   renameBook,
+  updateBookTitle,
   renameGroup,
   setOverlaySession,
   updateItemContent,
   upsertProgress
 } from './db'
-import { WebContentExtractor } from './webContentExtractor'
+import { BrowserBridge, ExtractError, WebContentExtractor } from './webContentExtractor'
 
 let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
@@ -46,6 +49,14 @@ function isWebExtractLoadTimeout(err: unknown): boolean {
   return err instanceof Error && err.message.includes('WEB_EXTRACT::LOAD_TIMEOUT')
 }
 
+function mapExtractErrorToWebError(err: unknown): Error {
+  if (err instanceof ExtractError) {
+    return webExtractErr(err.code, err.message)
+  }
+  if (err instanceof Error) return err
+  return webExtractErr('UNKNOWN', '提取失败，请重试。')
+}
+
 async function waitWebContentsReady(wc: Electron.WebContents, timeoutMs = 20000) {
   if (!wc.isLoading()) return
   await new Promise<void>((resolve, reject) => {
@@ -69,6 +80,44 @@ async function waitWebContentsReady(wc: Electron.WebContents, timeoutMs = 20000)
     wc.once('did-finish-load', onDone)
     wc.once('did-fail-load', onFail)
   })
+}
+
+async function runStructuredExtraction(wc: Electron.WebContents, fallbackUrl?: string) {
+  try {
+    await waitWebContentsReady(wc)
+  } catch (e) {
+    if (!isWebExtractLoadTimeout(e)) throw e
+  }
+
+  const bridge = new BrowserBridge(wc)
+  try {
+    await bridge.triggerLazyLoad(7)
+  } catch {
+    // ignore warmup failures
+  }
+  const page = (await bridge.extractWhenReady<{ url: string; html: string; title: string }>(
+    `({ url: location.href || '', html: document.documentElement.outerHTML || '', title: document.title || '' })`,
+    { waitForImages: true, settleAfterMs: 250, timeoutMs: 5000, maxDomNodes: 5000 }
+  )) as { url: string; html: string; title: string }
+
+  const pageUrl = String(page?.url || fallbackUrl || '')
+  const extractor = new WebContentExtractor({ minTextLength: 200 })
+  let extracted
+  try {
+    extracted = extractor.extractCurrentPage(pageUrl, page?.html || '')
+  } catch (err) {
+    throw mapExtractErrorToWebError(err)
+  }
+  const nav = extractor.detectNavigation(page?.html || '', pageUrl)
+  const toc = extractor.detectTOC(pageUrl, page?.html || '')
+
+  return {
+    pageUrl,
+    pageTitle: String(page?.title || ''),
+    extracted,
+    nav,
+    toc
+  }
 }
 
 function stopOverlayMove() {
@@ -382,6 +431,23 @@ ipcMain.handle('library:renameBook', (_evt, args: { bookId: string; title: strin
   return renameBook(args.bookId, args.title)
 })
 
+ipcMain.handle('book:rename', (_evt, args: { bookId: string; newTitle: string }) => {
+  return updateBookTitle(String(args?.bookId ?? ''), String(args?.newTitle ?? ''))
+})
+
+ipcMain.handle('book:delete', (_evt, args: { bookId: string }) => {
+  return deleteBook(String(args?.bookId ?? ''))
+})
+
+ipcMain.handle('book:deleteMany', (_evt, args: { bookIds: string[] }) => {
+  const bookIds = Array.isArray(args?.bookIds) ? args.bookIds.map(String).filter(Boolean) : []
+  return deleteBooks({ bookIds })
+})
+
+ipcMain.handle('book:search', (_evt, args: { query: string }) => {
+  return { books: searchBooks(String(args?.query ?? '')) }
+})
+
 ipcMain.handle('library:listGroups', () => {
   return { groups: listGroups() }
 })
@@ -494,86 +560,10 @@ ipcMain.handle('web:extract', async () => {
     throw webExtractErr('NO_WEB_WINDOW', '未检测到已打开的网页窗口，请先点击“打开网页”。')
   }
   const wc = webWindow.webContents
-  try {
-    await waitWebContentsReady(wc)
-  } catch (e) {
-    if (isWebExtractLoadTimeout(e)) {
-      console.info('[web:extract] waitWebContentsReady LOAD_TIMEOUT, continuing DOM extract', wc.getURL())
-    } else {
-      throw e
-    }
-  }
-
-  // 触发一次懒加载（常见于“滚动后才填充正文/图片占位”页面）
-  try {
-    await wc.executeJavaScript(`(() => new Promise((resolve) => {
-      const maxSteps = 6;
-      let step = 0;
-      const tick = () => {
-        step += 1;
-        window.scrollTo(0, document.body ? document.body.scrollHeight : 0);
-        if (step >= maxSteps) {
-          setTimeout(() => {
-            window.scrollTo(0, 0);
-            resolve(true);
-          }, 250);
-          return;
-        }
-        setTimeout(tick, 180);
-      };
-      tick();
-    }))()`)
-  } catch {
-    // ignore
-  }
-
-  const res = await wc.executeJavaScript(`(() => {
-    const url = location.href || '';
-    const title = document.title || '';
-    const readyState = document.readyState || '';
-
-    const pickRoot = () => {
-      const selectors = ['article', 'main', '#content', '.content', '.article', '.post', '.entry', '.entry-content'];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.textContent && el.textContent.trim().length > 200) return el;
-      }
-      return document.body;
-    };
-
-    const root = pickRoot();
-    if (!root) return { url, title, readyState, contentText: '' };
-
-    const clone = root.cloneNode(true);
-    const removeSelectors = [
-      'nav','footer','aside','script','style','noscript',
-      'header','form','input','button','select','textarea',
-      '[role="navigation"]','[role="complementary"]'
-    ];
-    for (const sel of removeSelectors) {
-      clone.querySelectorAll(sel).forEach((n) => n.remove());
-    }
-
-    const text = (clone.textContent || '').replace(/\\r\\n/g, '\\n');
-    return { url, title, readyState, contentText: text };
-  })()`)
-
-  const url = String(res?.url ?? '')
-  const title = String(res?.title ?? '')
-  const contentText = String(res?.contentText ?? '').trim()
-  const readyState = String(res?.readyState ?? '')
-  const preview80 = contentText.slice(0, 80)
-  console.info(
-    '[web:extract]',
-    'url=',
-    wc.getURL(),
-    'readyState=',
-    readyState,
-    'len=',
-    contentText.length,
-    'preview=',
-    preview80
-  )
+  const { pageUrl, extracted } = await runStructuredExtraction(wc, wc.getURL())
+  const contentText = String(extracted.textContent || '').trim()
+  const title = String(extracted.title || '')
+  const url = String(pageUrl || '')
 
   let domain: string | null = null
   try {
@@ -582,22 +572,8 @@ ipcMain.handle('web:extract', async () => {
     domain = null
   }
 
-  // 更明确的失败原因（用于 UI 提示）
-  if (!url) {
-    throw webExtractErr('NO_URL', '未能获取当前页面 URL（可能页面尚未完成加载）。')
-  }
-  if (!contentText) {
-    const hint = /登录|注册|sign\\s*in|log\\s*in|验证码|请先|购买|订阅|会员|充值/i.test(title)
-      ? '（疑似需要登录/购买/订阅，完成操作后再提取）'
-      : ''
-    throw webExtractErr('EMPTY_CONTENT', `未检测到正文内容${hint}。`)
-  }
-  if (contentText.length < 200) {
-    // 对动态渲染/反爬常见空壳页面给出提示
-    const maybeDynamic = readyState !== 'complete'
-    const hint = maybeDynamic ? '（页面可能仍在动态加载，稍等或向下滚动后再试）' : '（可能打开的不是正文页，或站点做了反爬/动态渲染）'
-    throw webExtractErr('TOO_SHORT', `正文过短，无法导入${hint}。`)
-  }
+  if (!url) throw webExtractErr('NO_URL', '未能获取当前页面 URL。')
+  if (!contentText) throw webExtractErr('NO_MAIN_CONTENT', '未识别到正文，请切换章节页或使用手动框选。')
 
   const previewLines = contentText.split('\n').map((s) => s.trim()).filter(Boolean)
   const preview = previewLines.slice(0, 12).join('\n')
@@ -608,7 +584,7 @@ ipcMain.handle('web:extract', async () => {
     domain,
     contentText,
     preview,
-    extractor: 'dom-text'
+    extractor: extracted.source || 'readability'
   }
 })
 
@@ -637,34 +613,10 @@ ipcMain.handle('web:extractAtUrl', async (_evt, args: { url: string }) => {
   if (!/^https?:\/\//i.test(url)) throw webExtractErr('INVALID_URL', '无效 URL。')
   const w = await loadUrlInWebWindow(url)
   w.show()
-  // reuse existing extract logic by calling the handler logic inline (duplicated minimal)
   const wc = w.webContents
-  await waitWebContentsReady(wc)
-  const res = await wc.executeJavaScript(`(() => {
-    const url = location.href || '';
-    const title = document.title || '';
-    const readyState = document.readyState || '';
-    const pickRoot = () => {
-      const selectors = ['article', 'main', '#content', '.content', '.article', '.post', '.entry', '.entry-content'];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.textContent && el.textContent.trim().length > 200) return el;
-      }
-      return document.body;
-    };
-    const root = pickRoot();
-    if (!root) return { url, title, readyState, contentText: '' };
-    const clone = root.cloneNode(true);
-    const removeSelectors = ['nav','footer','aside','script','style','noscript','header','form','input','button','select','textarea','[role=\"navigation\"]','[role=\"complementary\"]'];
-    for (const sel of removeSelectors) clone.querySelectorAll(sel).forEach((n) => n.remove());
-    const text = (clone.textContent || '').replace(/\\r\\n/g, '\\n');
-    return { url, title, readyState, contentText: text };
-  })()`)
-
-  const pageUrl = String(res?.url ?? '')
-  const title = String(res?.title ?? '')
-  const contentText = String(res?.contentText ?? '').trim()
-  const readyState = String(res?.readyState ?? '')
+  const { pageUrl, extracted } = await runStructuredExtraction(wc, url)
+  const title = String(extracted.title ?? '')
+  const contentText = String(extracted.textContent ?? '').trim()
   let domain: string | null = null
   try {
     if (pageUrl) domain = new URL(pageUrl).hostname || null
@@ -672,15 +624,10 @@ ipcMain.handle('web:extractAtUrl', async (_evt, args: { url: string }) => {
     domain = null
   }
   if (!pageUrl) throw webExtractErr('NO_URL', '未能获取当前页面 URL。')
-  if (!contentText) throw webExtractErr('EMPTY_CONTENT', '未检测到正文内容。')
-  if (contentText.length < 200) {
-    const maybeDynamic = readyState !== 'complete'
-    const hint = maybeDynamic ? '（页面可能仍在动态加载，稍等或向下滚动后再试）' : '（可能打开的不是正文页，或站点做了反爬/动态渲染）'
-    throw webExtractErr('TOO_SHORT', `正文过短，无法导入${hint}。`)
-  }
+  if (!contentText) throw webExtractErr('NO_MAIN_CONTENT', '未识别到正文，请切换章节页或使用手动框选。')
   const previewLines = contentText.split('\\n').map((s: string) => s.trim()).filter(Boolean)
   const preview = previewLines.slice(0, 12).join('\\n')
-  return { title, url: pageUrl, domain, contentText, preview, extractor: 'dom-text' }
+  return { title, url: pageUrl, domain, contentText, preview, extractor: extracted.source || 'readability' }
 })
 
 
@@ -691,49 +638,13 @@ ipcMain.handle('web:extractStructuredAtUrl', async (_evt, args: { url: string })
   const w = await loadUrlInWebWindow(url)
   w.show()
   const wc = w.webContents
-  await waitWebContentsReady(wc)
-
-  try {
-    await wc.executeJavaScript(`(() => new Promise((resolve) => {
-      let step = 0;
-      const max = 6;
-      const tick = () => {
-        step += 1;
-        window.scrollTo(0, document.body ? document.body.scrollHeight : 0);
-        if (step >= max) {
-          setTimeout(() => {
-            window.scrollTo(0, 0);
-            resolve(true);
-          }, 200);
-          return;
-        }
-        setTimeout(tick, 180);
-      };
-      tick();
-    }))()`, true)
-  } catch {
-    // ignore
-  }
-
-  const page = (await wc.executeJavaScript(
-    `({ url: location.href || '', html: document.documentElement.outerHTML || '', title: document.title || '' })`,
-    true
-  )) as { url: string; html: string; title: string }
-
-  const extractor = new WebContentExtractor({ minTextLength: 200 })
-  const extracted = extractor.extractCurrentPage(page.url || url, page.html || '')
-  const nav = extractor.detectNavigation(page.html || '', page.url || url)
-  const toc = extractor.detectTOC(page.url || url, page.html || '')
-
-  if (!extracted.textContent || extracted.length < 120) {
-    throw webExtractErr('NO_MAIN_CONTENT', '正文提取失败或正文过短。')
-  }
+  const { pageUrl, pageTitle, extracted, nav, toc } = await runStructuredExtraction(wc, url)
 
   return {
-    url: page.url || url,
-    title: extracted.title || page.title || '未命名网页',
+    url: pageUrl || url,
+    title: extracted.title || pageTitle || '未命名网页',
     content: {
-      title: extracted.title || page.title || '未命名网页',
+      title: extracted.title || pageTitle || '未命名网页',
       content: extracted.content,
       textContent: extracted.textContent,
       excerpt: extracted.textContent.slice(0, 180),
@@ -746,9 +657,239 @@ ipcMain.handle('web:extractStructuredAtUrl', async (_evt, args: { url: string })
     prevChapterUrl: nav.prevUrl,
     tocUrlCandidate: toc.tocUrlCandidate,
     isTocPage: toc.isTocPage,
-    extractor: 'readability'
+    extractor: extracted.source || 'readability'
   }
 })
+
+ipcMain.handle('web:refresh', async () => {
+  if (!webWindow || webWindow.isDestroyed()) {
+    throw webExtractErr('NO_WEB_WINDOW', '未检测到已打开的网页窗口，请先点击“打开网页”。')
+  }
+  const wc = webWindow.webContents
+  await wc.reloadIgnoringCache()
+  await waitWebContentsReady(wc)
+  return { ok: true, url: wc.getURL() }
+})
+
+ipcMain.handle(
+  'web:extractFromSelection',
+  async (
+    _evt,
+    args: {
+      rect?: { x: number; y: number; width: number; height: number }
+    }
+  ) => {
+    if (!webWindow || webWindow.isDestroyed()) {
+      throw webExtractErr('NO_WEB_WINDOW', '未检测到已打开的网页窗口，请先点击“打开网页”。')
+    }
+    const wc = webWindow.webContents
+    await waitWebContentsReady(wc)
+
+    const rectArg = JSON.stringify(args?.rect ?? null)
+    const pageSelection = (await wc.executeJavaScript(
+      `(() => {
+        const rect = ${rectArg};
+        const normalize = (s) => String(s || '').trim();
+        const fromCurrentSelection = () => {
+          const sel = window.getSelection?.();
+          if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return '';
+          const box = document.createElement('div');
+          for (let i = 0; i < sel.rangeCount; i += 1) {
+            box.appendChild(sel.getRangeAt(i).cloneContents());
+          }
+          return box.innerHTML || '';
+        };
+
+        const intersects = (a, b) => !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+        const pickByRect = () => {
+          if (!rect || typeof rect.x !== 'number') return '';
+          const target = {
+            left: rect.x,
+            top: rect.y,
+            right: rect.x + Math.max(0, rect.width || 0),
+            bottom: rect.y + Math.max(0, rect.height || 0)
+          };
+          const candidates = Array.from(document.querySelectorAll('article, main, section, div, p'))
+            .map((el) => ({ el, box: el.getBoundingClientRect() }))
+            .filter((it) => it.box.width > 0 && it.box.height > 0 && intersects(it.box, target))
+            .filter((it) => normalize(it.el.textContent).length >= 20)
+            .sort((a, b) => (b.box.width * b.box.height) - (a.box.width * a.box.height))
+            .slice(0, 120);
+
+          if (!candidates.length) return '';
+          const wrap = document.createElement('div');
+          for (const item of candidates) {
+            wrap.appendChild(item.el.cloneNode(true));
+          }
+          return wrap.innerHTML || '';
+        };
+
+        const collectByInteractiveRect = () => new Promise((resolve) => {
+          const existing = document.getElementById('__mf_rect_overlay__');
+          if (existing) existing.remove();
+
+          const overlay = document.createElement('div');
+          overlay.id = '__mf_rect_overlay__';
+          overlay.style.position = 'fixed';
+          overlay.style.left = '0';
+          overlay.style.top = '0';
+          overlay.style.right = '0';
+          overlay.style.bottom = '0';
+          overlay.style.zIndex = '2147483647';
+          overlay.style.cursor = 'crosshair';
+          overlay.style.background = 'rgba(30,41,59,0.08)';
+          overlay.style.userSelect = 'none';
+
+          const hint = document.createElement('div');
+          hint.textContent = '拖拽框选正文区域，Esc 取消';
+          hint.style.position = 'fixed';
+          hint.style.left = '12px';
+          hint.style.top = '12px';
+          hint.style.padding = '6px 10px';
+          hint.style.background = 'rgba(0,0,0,0.72)';
+          hint.style.color = '#fff';
+          hint.style.borderRadius = '8px';
+          hint.style.fontSize = '12px';
+          hint.style.pointerEvents = 'none';
+          overlay.appendChild(hint);
+
+          const box = document.createElement('div');
+          box.style.position = 'fixed';
+          box.style.border = '2px solid #3b82f6';
+          box.style.background = 'rgba(59,130,246,0.12)';
+          box.style.display = 'none';
+          box.style.pointerEvents = 'none';
+          overlay.appendChild(box);
+
+          document.documentElement.appendChild(overlay);
+
+          let sx = 0;
+          let sy = 0;
+          let drawing = false;
+
+          const cleanup = () => {
+            document.removeEventListener('keydown', onKeyDown, true);
+            overlay.removeEventListener('mousedown', onDown, true);
+            overlay.removeEventListener('mousemove', onMove, true);
+            overlay.removeEventListener('mouseup', onUp, true);
+            overlay.remove();
+          };
+
+          const toRect = (x1, y1, x2, y2) => ({
+            left: Math.min(x1, x2),
+            top: Math.min(y1, y2),
+            right: Math.max(x1, x2),
+            bottom: Math.max(y1, y2)
+          });
+
+          const collectByRect = (target) => {
+            const intersects = (a, b) => !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+            const candidates = Array.from(document.querySelectorAll('article, main, section, div, p'))
+              .map((el) => ({ el, box: el.getBoundingClientRect() }))
+              .filter((it) => it.box.width > 0 && it.box.height > 0 && intersects(it.box, target))
+              .filter((it) => normalize(it.el.textContent).length >= 20)
+              .sort((a, b) => (b.box.width * b.box.height) - (a.box.width * a.box.height))
+              .slice(0, 160);
+            if (!candidates.length) return '';
+            const wrap = document.createElement('div');
+            for (const item of candidates) wrap.appendChild(item.el.cloneNode(true));
+            return wrap.innerHTML || '';
+          };
+
+          const onKeyDown = (e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              cleanup();
+              resolve('');
+            }
+          };
+
+          const onDown = (e) => {
+            if (e.button !== 0) return;
+            drawing = true;
+            sx = e.clientX;
+            sy = e.clientY;
+            box.style.display = 'block';
+            box.style.left = String(sx) + 'px';
+            box.style.top = String(sy) + 'px';
+            box.style.width = '0px';
+            box.style.height = '0px';
+            e.preventDefault();
+          };
+
+          const onMove = (e) => {
+            if (!drawing) return;
+            const r = toRect(sx, sy, e.clientX, e.clientY);
+            box.style.left = String(r.left) + 'px';
+            box.style.top = String(r.top) + 'px';
+            box.style.width = String(Math.max(0, r.right - r.left)) + 'px';
+            box.style.height = String(Math.max(0, r.bottom - r.top)) + 'px';
+            e.preventDefault();
+          };
+
+          const onUp = (e) => {
+            if (!drawing) return;
+            drawing = false;
+            const r = toRect(sx, sy, e.clientX, e.clientY);
+            cleanup();
+            if ((r.right - r.left) < 12 || (r.bottom - r.top) < 12) {
+              resolve('');
+              return;
+            }
+            resolve(collectByRect(r));
+            e.preventDefault();
+          };
+
+          document.addEventListener('keydown', onKeyDown, true);
+          overlay.addEventListener('mousedown', onDown, true);
+          overlay.addEventListener('mousemove', onMove, true);
+          overlay.addEventListener('mouseup', onUp, true);
+        });
+
+        return Promise.resolve().then(async () => {
+          let selectedHtml = fromCurrentSelection() || pickByRect();
+          if (!selectedHtml) selectedHtml = await collectByInteractiveRect();
+          return {
+            url: location.href || '',
+            title: document.title || '',
+            selectedHtml
+          };
+        });
+      })()`,
+      true
+    )) as { url: string; title: string; selectedHtml: string }
+
+    const url = String(pageSelection?.url ?? '')
+    const title = String(pageSelection?.title ?? '')
+    const selectedHtml = String(pageSelection?.selectedHtml ?? '')
+    if (!selectedHtml.trim()) {
+      throw webExtractErr('MANUAL_SELECTION_EMPTY', '未检测到选区内容，请先框选正文后重试。')
+    }
+
+    const extractor = new WebContentExtractor({ minTextLength: 200 })
+    const extracted = extractor.extractFromSelectedHtml(url || wc.getURL(), selectedHtml, title)
+    if (!extracted.textContent || extracted.length < 20) {
+      throw webExtractErr('MANUAL_SELECTION_TOO_SHORT', '选区内容过短，请扩大选区后重试。')
+    }
+
+    let domain: string | null = null
+    try {
+      if (url) domain = new URL(url).hostname || null
+    } catch {
+      domain = null
+    }
+
+    return {
+      title: extracted.title || title || '未命名网页',
+      url: url || wc.getURL(),
+      domain,
+      contentText: extracted.textContent,
+      contentHtml: extracted.content,
+      preview: extracted.textContent.slice(0, 800),
+      extractor: 'manual-selection'
+    }
+  }
+)
 
 ipcMain.handle('web:extractBookDetail', async () => {
   if (!webWindow || webWindow.isDestroyed()) {

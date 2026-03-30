@@ -99,6 +99,20 @@ type BookDetail = {
   progress: { bookId: string; itemId: string; lineIndex: number; updatedAt: number } | null
 }
 
+type WebExtractErrorInfo = {
+  code: string
+  message: string
+}
+
+type ToastState = {
+  id: number
+  type: 'success' | 'error'
+  message: string
+  sticky?: boolean
+  actionLabel?: string
+  onAction?: () => void
+}
+
 const LS = { cfg: 'overlay:cfg', cfgLegacy: 'demo:cfg' } as const
 
 function setJson(key: string, val: unknown) {
@@ -141,6 +155,7 @@ export function MainView() {
 
   const [cfg, setCfg] = useState<OverlayConfig>(initialCfg)
   const [books, setBooks] = useState<BookSummary[]>([])
+  const [remoteSearchBooks, setRemoteSearchBooks] = useState<BookSummary[] | null>(null)
   const [groups, setGroups] = useState<GroupRow[]>([])
   const [tab, setTab] = useState<'all' | 'file' | 'url'>('all')
   const [groupFilter, setGroupFilter] = useState<string | null | '__all__'>('__all__')
@@ -152,12 +167,12 @@ export function MainView() {
   const [err, setErr] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [showChapters, setShowChapters] = useState(true)
-  const [chapterPage, setChapterPage] = useState(0)
-  const chapterPageSize = 20
 
   const [webUrl, setWebUrl] = useState('')
   const [webLoading, setWebLoading] = useState(false)
   const [webErr, setWebErr] = useState<string | null>(null)
+  const [webErrCode, setWebErrCode] = useState<string | null>(null)
+  const [webErrExpanded, setWebErrExpanded] = useState(false)
   const [webMode, setWebMode] = useState<'article' | 'book'>('article')
   const [webPreview, setWebPreview] = useState<{
     title: string
@@ -174,11 +189,30 @@ export function MainView() {
     chapters: Array<{ title: string; url: string }>
   } | null>(null)
   const [webBookId, setWebBookId] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const toastTimerRef = useRef<number | null>(null)
+  const chapterListRef = useRef<HTMLDivElement | null>(null)
+  const [chapterScrollTop, setChapterScrollTop] = useState(0)
   const importTxtInputRef = useRef<HTMLInputElement | null>(null)
 
   function applyCfg(next: OverlayConfig) {
     setCfg(next)
     setJson(LS.cfg, next)
+  }
+
+  function showToast(next: Omit<ToastState, 'id'>) {
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current)
+      toastTimerRef.current = null
+    }
+    const t: ToastState = { id: Date.now(), ...next }
+    setToast(t)
+    if (!t.sticky) {
+      toastTimerRef.current = window.setTimeout(() => {
+        setToast((cur) => (cur?.id === t.id ? null : cur))
+        toastTimerRef.current = null
+      }, 2000)
+    }
   }
 
   const groupOptions = useMemo(() => {
@@ -235,7 +269,6 @@ export function MainView() {
     try {
       const res = (await window.api?.libraryGetBook?.(bookId)) as any
       setActive(res as BookDetail)
-      setChapterPage(0)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
       setActive(null)
@@ -303,7 +336,7 @@ export function MainView() {
     const title = next.trim()
     if (!title) return
     try {
-      await window.api?.libraryRenameBook?.({ bookId: activeBookId, title })
+      await window.api?.bookRename?.({ bookId: activeBookId, newTitle: title })
       await refreshLibrary(activeBookId)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -373,9 +406,11 @@ export function MainView() {
     const ok = window.confirm(`确认删除 ${bookIds.length} 本书？将同时删除其章节与阅读进度，此操作不可恢复。`)
     if (!ok) return
     try {
-      await window.api?.libraryDeleteBooks?.({ bookIds })
+      const res = (await window.api?.bookDeleteMany?.({ bookIds })) as any
       setSelectedBookIds({})
       await refreshLibrary(undefined)
+      const deletedCount = Number(res?.deletedCount ?? 0)
+      setNotice(`已删除 ${deletedCount} 本书。`)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     }
@@ -383,6 +418,8 @@ export function MainView() {
 
   async function onOpenWeb() {
     setWebErr(null)
+    setWebErrCode(null)
+    setWebErrExpanded(false)
     setNotice(null)
     const url = webUrl.trim()
     if (!url) {
@@ -401,6 +438,8 @@ export function MainView() {
 
   async function onExtractWeb() {
     setWebErr(null)
+    setWebErrCode(null)
+    setWebErrExpanded(false)
     setWebLoading(true)
     try {
       const res = (await window.api?.webExtract?.()) as any
@@ -419,15 +458,52 @@ export function MainView() {
       })
       setWebBookPreview(null)
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e)
-      // Electron IPC 的错误信息常见形态：Error invoking remote method 'web:extract': Error: xxx
-      const m = raw.match(/WEB_EXTRACT::([^:]+)::([\s\S]+)/)
-      if (m) {
-        setWebErr(m[2]?.trim() || '网页提取失败。')
-      } else if (/NO_WEB_WINDOW/.test(raw)) {
+      const info = parseWebExtractError(e)
+      if (info) {
+        setWebErrCode(info.code)
+        setWebErr(info.message || '网页提取失败。')
+      } else if (/NO_WEB_WINDOW/.test(e instanceof Error ? e.message : String(e))) {
+        setWebErrCode('NO_WEB_WINDOW')
         setWebErr('未检测到已打开的网页窗口，请先点击“打开网页”。')
       } else {
-        setWebErr(raw)
+        setWebErrCode('UNKNOWN')
+        setWebErr(e instanceof Error ? e.message : String(e))
+      }
+    } finally {
+      setWebLoading(false)
+    }
+  }
+
+  async function onExtractWebFromSelection() {
+    setWebErr(null)
+    setWebErrCode(null)
+    setWebErrExpanded(false)
+    setWebLoading(true)
+    try {
+      const res = (await window.api?.webExtractFromSelection?.()) as any
+      const contentText = String(res?.contentText ?? '').trim()
+      if (!contentText || contentText.length < 20) {
+        setWebErr('未检测到有效选区内容，请先在网页中选中正文后重试。')
+        setWebPreview(null)
+        return
+      }
+      setWebPreview({
+        title: String(res?.title ?? '未命名网页'),
+        url: String(res?.url ?? ''),
+        domain: (res?.domain as string | null) ?? null,
+        contentText,
+        preview: String(res?.preview ?? '')
+      })
+      setWebBookPreview(null)
+      setNotice('已使用手动框选兜底提取（L4）。')
+    } catch (e) {
+      const info = parseWebExtractError(e)
+      if (info) {
+        setWebErrCode(info.code)
+        setWebErr(info.message || '手动框选提取失败。')
+      } else {
+        setWebErrCode('UNKNOWN')
+        setWebErr(e instanceof Error ? e.message : String(e))
       }
     } finally {
       setWebLoading(false)
@@ -436,6 +512,8 @@ export function MainView() {
 
   async function onExtractWebBookDetail() {
     setWebErr(null)
+    setWebErrCode(null)
+    setWebErrExpanded(false)
     setWebLoading(true)
     try {
       const res = (await window.api?.webExtractBookDetail?.()) as any
@@ -457,10 +535,40 @@ export function MainView() {
       })
       setWebPreview(null)
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e)
-      const m = raw.match(/WEB_EXTRACT::([^:]+)::([\s\S]+)/)
-      if (m) setWebErr(m[2]?.trim() || '解析书籍详情失败。')
-      else setWebErr(raw)
+      const info = parseWebExtractError(e)
+      if (info) {
+        setWebErrCode(info.code)
+        setWebErr(info.message || '解析书籍详情失败。')
+      } else {
+        setWebErrCode('UNKNOWN')
+        setWebErr(e instanceof Error ? e.message : String(e))
+      }
+    } finally {
+      setWebLoading(false)
+    }
+  }
+
+  async function onRefreshAndRetry() {
+    setWebErr(null)
+    setWebErrCode(null)
+    setWebErrExpanded(false)
+    setWebLoading(true)
+    try {
+      await window.api?.webRefresh?.()
+      if (webMode === 'article') {
+        await onExtractWeb()
+      } else {
+        await onExtractWebBookDetail()
+      }
+    } catch (e) {
+      const info = parseWebExtractError(e)
+      if (info) {
+        setWebErrCode(info.code)
+        setWebErr(info.message || '刷新后重试失败。')
+      } else {
+        setWebErrCode('UNKNOWN')
+        setWebErr(e instanceof Error ? e.message : String(e))
+      }
     } finally {
       setWebLoading(false)
     }
@@ -483,6 +591,7 @@ export function MainView() {
       setNotice('网页正文已保存到书架。')
       setWebPreview(null)
     } catch (e) {
+      setWebErrCode('UNKNOWN')
       setWebErr(e instanceof Error ? e.message : String(e))
     } finally {
       setWebLoading(false)
@@ -559,9 +668,75 @@ export function MainView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current)
+        toastTimerRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!notice) return
+    showToast({ type: 'success', message: notice })
+  }, [notice])
+
+  useEffect(() => {
+    if (!err) return
+    showToast({ type: 'error', message: err, sticky: true })
+  }, [err])
+
+  useEffect(() => {
+    if (!webErr) return
+    const canRetry = Boolean(webErrCode === 'EXTRACTION_TIMEOUT' || webErrCode === 'DOM_TOO_LARGE')
+    showToast({
+      type: 'error',
+      message: webErr,
+      sticky: true,
+      actionLabel: canRetry ? '重试' : undefined,
+      onAction: canRetry ? (() => void onExtractWeb()) : undefined
+    })
+  }, [webErr, webErrCode])
+
+  useEffect(() => {
+    if (!webPreview) return
+    showToast({
+      type: 'success',
+      message: '提取成功，可直接保存到书架',
+      actionLabel: '保存',
+      onAction: () => void onSaveWeb()
+    })
+  }, [webPreview])
+
+  useEffect(() => {
+    const qq = q.trim()
+    if (!qq) {
+      setRemoteSearchBooks(null)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = (await window.api?.bookSearch?.({ query: qq })) as any
+          if (!cancelled) setRemoteSearchBooks((res?.books ?? []) as BookSummary[])
+        } catch {
+          if (!cancelled) setRemoteSearchBooks(null)
+        }
+      })()
+    }, 220)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [q])
+
+  const sourceBooks = remoteSearchBooks ?? books
+
   const filteredBooks = useMemo(() => {
     const qq = q.trim().toLowerCase()
-    return books
+    return sourceBooks
       .filter((b) => {
         if (tab !== 'all' && b.sourceType !== tab) return false
         if (groupFilter !== '__all__') {
@@ -573,647 +748,306 @@ export function MainView() {
         return hay.includes(qq)
       })
       .sort((a, b) => Number(b.lastReadAt ?? b.updatedAt) - Number(a.lastReadAt ?? a.updatedAt))
-  }, [books, tab, groupFilter, q])
+  }, [sourceBooks, tab, groupFilter, q])
 
-  const selectedCount = useMemo(() => selectedIdsList().length, [selectedBookIds])
+  function parseWebExtractError(input: unknown): WebExtractErrorInfo | null {
+    const raw = input instanceof Error ? input.message : String(input)
+    const m = raw.match(/WEB_EXTRACT::([^:]+)::([\s\S]+)/)
+    if (!m) return null
+    return {
+      code: String(m[1] || '').trim(),
+      message: String(m[2] || '').trim()
+    }
+  }
+
+  const chapterRowHeight = 38
+  const chapterViewportHeight = 300
+  const chapterItems = active?.items ?? []
+  const chapterTotal = chapterItems.length
+  const chapterStart = Math.max(0, Math.floor(chapterScrollTop / chapterRowHeight) - 6)
+  const chapterEnd = Math.min(chapterTotal, chapterStart + Math.ceil(chapterViewportHeight / chapterRowHeight) + 12)
+  const chapterVisibleItems = chapterItems.slice(chapterStart, chapterEnd)
+  const chapterOffsetY = chapterStart * chapterRowHeight
 
   return (
-    <div className="page">
-      <h2>墨鱼阅读器</h2>
-
-      <div className="card" style={{ marginTop: 16 }}>
-        <h3 className="cardTitle">导入与书架</h3>
-        <div className="hint" style={{ margin: '-4px 0 12px' }}>
-          老板键 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>（Mac 为 <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>）显示/隐藏桌面阅读条
-        </div>
-        <div className="row rowGap">
-          <label className="labelBlock">
-            <span className="sectionLabel">导入 txt</span>
-            <input
-              ref={importTxtInputRef}
-              type="file"
-              accept=".txt,text/plain"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) onImportTxt(f)
-              }}
-            />
-          </label>
-          <button className="btn" onClick={() => void refreshLibrary()}>
-            刷新书架
-          </button>
-          <button className="btn" onClick={() => void onRenameActiveBook()} disabled={!activeBookId} title="重命名当前选中的书籍">
-            重命名当前书
-          </button>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginTop: 16 }}>
-        <h3 className="cardTitle">网页导入阅读</h3>
-        <div className="hint" style={{ margin: '-4px 0 12px' }}>
-          在内置浏览器中打开网页，完成登录/购买后再点击提取。
-        </div>
-        <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-          <button className={`btn ${webMode === 'article' ? 'btnPrimary' : ''}`} onClick={() => setWebMode('article')}>
-            导入文章页
-          </button>
-          <button className={`btn ${webMode === 'book' ? 'btnPrimary' : ''}`} onClick={() => setWebMode('book')}>
-            导入书籍详情页（目录）
-          </button>
-        </div>
-        <div className="row rowGap" style={{ alignItems: 'flex-end' }}>
-          <label className="labelBlock" style={{ flex: 1 }}>
-            <span className="sectionLabel">网址</span>
-            <input
-              type="text"
-              placeholder="https://example.com/article"
-              value={webUrl}
-              onChange={(e) => setWebUrl(e.target.value)}
-              style={{ width: '100%' }}
-            />
-          </label>
-          <button className="btn" onClick={() => void onOpenWeb()} disabled={webLoading}>
-            打开网页
-          </button>
-          {webMode === 'article' ? (
-            <button className="btn" onClick={() => void onExtractWeb()} disabled={webLoading}>
-              提取当前页
-            </button>
-          ) : (
-            <button className="btn" onClick={() => void onExtractWebBookDetail()} disabled={webLoading}>
-              解析详情（目录）
-            </button>
-          )}
-        </div>
-        <div className="row rowGap" style={{ marginTop: 10, alignItems: 'center' }}>
-          <label className="labelBlock" style={{ minWidth: 180 }}>
-            <span className="hint">保存到</span>
-            <select
-              value={webBookId ?? ''}
-              onChange={(e) => setWebBookId(e.target.value || null)}
-              style={{ height: 34, borderRadius: 10, border: '1px solid var(--card-border)', padding: '0 10px', fontSize: 13 }}
-            >
-              <option value="">新建书籍</option>
-              {books.filter((b) => b.sourceType === 'url').map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="btn" onClick={() => window.api?.webClose?.()} disabled={webLoading}>
-            关闭网页
-          </button>
-        </div>
-
-        {webErr ? (
-          <div className="hint" style={{ marginTop: 12, color: '#b91c1c' }}>
-            {webErr}
-          </div>
-        ) : null}
-
-        {webPreview ? (
-          <div className="cardSection" style={{ marginTop: 14 }}>
-            <span className="sectionLabel">正文预览</span>
-            <div className="hint" style={{ marginTop: 6 }}>
-              {webPreview.title}
-              {webPreview.domain ? ` · ${webPreview.domain}` : ''}
-            </div>
-            <pre
-              style={{
-                marginTop: 8,
-                whiteSpace: 'pre-wrap',
-                background: 'var(--card-bg)',
-                border: '1px solid var(--card-border)',
-                borderRadius: 12,
-                padding: 12,
-                maxHeight: 220,
-                overflow: 'auto',
-                fontSize: 12
+    <div className="toolRootSingle">
+      {toast ? (
+        <div className={`toolToast ${toast.type === 'error' ? 'toolToastError' : ''}`}>
+          <span>{toast.message}</span>
+          {toast.actionLabel ? (
+            <button
+              className="toolToastAction"
+              onClick={() => {
+                toast.onAction?.()
+                if (!toast.sticky) setToast(null)
               }}
             >
-              {webPreview.preview || '（暂无预览内容）'}
-            </pre>
-            <div className="row rowGap" style={{ marginTop: 10 }}>
-              <button className="btn btnPrimary" onClick={() => void onSaveWeb()} disabled={webLoading}>
-                保存到书架
-              </button>
-              <button className="btn" onClick={() => onCancelWebPreview()}>
-                取消
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {webBookPreview ? (
-          <div className="cardSection" style={{ marginTop: 14 }}>
-            <span className="sectionLabel">书籍详情预览</span>
-            <div className="hint" style={{ marginTop: 6 }}>
-              {webBookPreview.bookTitle}
-              {webBookPreview.domain ? ` · ${webBookPreview.domain}` : ''}
-              {` · 目录 ${webBookPreview.chapters.length} 章`}
-            </div>
-            {webBookPreview.introText ? (
-              <div
-                style={{
-                  marginTop: 8,
-                  background: 'var(--card-bg)',
-                  border: '1px solid var(--card-border)',
-                  borderRadius: 12,
-                  padding: 12,
-                  fontSize: 12,
-                  color: 'var(--hint)'
-                }}
-              >
-                {webBookPreview.introText}
-              </div>
-            ) : null}
-            <div className="row rowGap" style={{ marginTop: 10 }}>
-              <button className="btn btnPrimary" onClick={() => void onImportWebBook()} disabled={webLoading}>
-                导入目录到书架
-              </button>
-              <button className="btn" onClick={() => onCancelWebPreview()}>
-                取消
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="card" style={{ marginTop: 16 }}>
-        <h3 className="cardTitle">阅读条设置</h3>
-        <p className="hint" style={{ marginBottom: 14 }}>
-          以下设置会同步到桌面阅读条，默认白字、无背景。
-        </p>
-        <div className="cardSection">
-          <span className="sectionLabel">外观</span>
-          <div className="row rowGap" style={{ marginTop: 6 }}>
-            <label className="labelBlock">
-              <span className="hint">字体颜色</span>
-              <input
-                type="color"
-                value={cfg.textColor}
-                onChange={(e) => applyCfg({ ...cfg, textColor: e.target.value })}
-                title="默认白字"
-              />
-            </label>
-            <label className="labelBlock">
-              <span className="hint">背景颜色</span>
-              <input
-                type="color"
-                value={cfg.bgColor}
-                onChange={(e) => applyCfg({ ...cfg, bgColor: e.target.value })}
-              />
-            </label>
-            <label className="labelBlock">
-              <span className="hint">背景透明度 {cfg.bgOpacity.toFixed(2)}</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={cfg.bgOpacity}
-                onChange={(e) => applyCfg({ ...cfg, bgOpacity: Number(e.target.value) })}
-              />
-            </label>
-          </div>
-        </div>
-        <div className="cardSection">
-          <span className="sectionLabel">速度与翻页</span>
-          <div className="row rowGap" style={{ marginTop: 6 }}>
-            <label className="labelBlock">
-              <span className="hint">字/分钟</span>
-              <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                <input
-                  type="range"
-                  min={1}
-                  max={1000}
-                  step={1}
-                  value={cfg.charsPerMinute}
-                  onChange={(e) => {
-                    const charsPerMinute = Number(e.target.value)
-                    const speedMs = cfg.autoSpeed
-                      ? calcSpeedMsFromCpm({
-                          cols: cfg.cols,
-                          rows: cfg.rows,
-                          linesPerTick: cfg.linesPerTick,
-                          charsPerMinute
-                        })
-                      : cfg.speedMs
-                    applyCfg({ ...cfg, charsPerMinute, speedMs })
-                  }}
-                />
-                <span style={{ minWidth: 52, fontSize: 13 }}>{cfg.charsPerMinute}</span>
-              </div>
-            </label>
-            <label className="labelBlock">
-              <span className="hint">每次前进（行）</span>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={cfg.linesPerTick}
-                onChange={(e) => applyCfg({ ...cfg, linesPerTick: Number(e.target.value) })}
-              />
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {err ? (
-        <div className="card" style={{ marginTop: 16, borderColor: '#fca5a5', background: '#fef2f2' }}>
-          <div className="hint" style={{ color: '#b91c1c' }}>{err}</div>
+              {toast.actionLabel}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
-      {notice ? (
-        <div className="card" style={{ marginTop: 16, borderColor: '#fcd34d', background: '#fffbeb' }}>
-          <div className="hint" style={{ color: '#92400e' }}>{notice}</div>
-        </div>
-      ) : null}
-
-      <div className="grid" style={{ marginTop: 16 }}>
-        <div className="card">
-          <h3 className="cardTitle">书架</h3>
-          <div className="hint" style={{ margin: '-6px 0 10px' }}>
-            点击一本书后，在右侧展开目录与控制。
-          </div>
-          <div className="row rowGap" style={{ marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div className="row" style={{ gap: 8 }}>
-              <button className={`btn ${tab === 'all' ? 'btnPrimary' : ''}`} onClick={() => setTab('all')}>
-                全部
-              </button>
-              <button className={`btn ${tab === 'file' ? 'btnPrimary' : ''}`} onClick={() => setTab('file')}>
-                本地
-              </button>
-              <button className={`btn ${tab === 'url' ? 'btnPrimary' : ''}`} onClick={() => setTab('url')}>
-                网页
-              </button>
-            </div>
+      <main className="toolMainSingle">
+        <section className="toolTop">
+          <div className="toolTopBar">
             <input
+              className="toolSearchInput"
               type="text"
               placeholder="搜索书名 / 域名 / 来源"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              style={{ flex: 1, minWidth: 180 }}
             />
-            <button className="btn" onClick={() => void onCreateGroup(null)} title="在根节点创建分组">
-              新建分组
-            </button>
+            <div className="row" style={{ gap: 8 }}>
+              <button className={`toolChip ${tab === 'all' ? 'toolChipActive' : ''}`} onClick={() => setTab('all')}>全部</button>
+              <button className={`toolChip ${tab === 'file' ? 'toolChipActive' : ''}`} onClick={() => setTab('file')}>本地</button>
+              <button className={`toolChip ${tab === 'url' ? 'toolChipActive' : ''}`} onClick={() => setTab('url')}>网页</button>
+              <label className="toolIconBtn" title="导入 TXT">
+                ＋
+                <input
+                  ref={importTxtInputRef}
+                  type="file"
+                  accept=".txt,text/plain"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) onImportTxt(f)
+                  }}
+                />
+              </label>
+              <button className="toolChip" onClick={() => void onRenameActiveBook()} disabled={!activeBookId} title="重命名当前选中书籍">
+                重命名当前书
+              </button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-            <div style={{ border: '1px solid var(--card-border)', borderRadius: 12, padding: 10, minWidth: 0 }}>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="hint">分组</div>
-                <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-                  <button className="btn" onClick={() => void onCreateGroup(null)} title="新建根分组">
-                    + 新建
-                  </button>
+          <div className="toolTwoCol">
+            <div className="toolBookList">
+              {filteredBooks.length === 0 ? (
+                <div className="toolEmpty">
+                  <div className="toolEmptyArt">📘</div>
+                  <div>暂无书籍，点击上方导入 TXT 或网页</div>
                 </div>
-              </div>
-
-              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflow: 'auto' }}>
-                <button
-                  className={`btn ${groupFilter === '__all__' ? 'btnPrimary' : ''}`}
-                  onClick={() => setGroupFilter('__all__')}
-                  style={{ textAlign: 'left' }}
-                >
-                  全部分组
-                </button>
-                <button
-                  className={`btn ${groupFilter === null ? 'btnPrimary' : ''}`}
-                  onClick={() => setGroupFilter(null)}
-                  style={{ textAlign: 'left' }}
-                  title="未分组的书"
-                >
-                  未分组
-                </button>
-
-                {groupOptions.length === 0 ? <div className="hint">（还没有分组）</div> : null}
-
-                {groupOptions.map((g) => (
-                  <div key={g.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
-                    <button
-                      className={`btn ${groupFilter === g.id ? 'btnPrimary' : ''}`}
-                      onClick={() => setGroupFilter(g.id)}
-                      style={{ textAlign: 'left', width: '100%', minWidth: 0 }}
-                      title="筛选该分组"
-                    >
-                      {g.label}
-                    </button>
-                    <div className="row" style={{ gap: 6, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
-                      <button className="btn" onClick={() => void onCreateGroup(g.id)} title="新建子分组">
-                        +
-                      </button>
-                      <button className="btn" onClick={() => void onRenameGroup(g.id)} title="重命名">
-                        改
-                      </button>
-                      <button className="btn" onClick={() => void onDeleteGroup(g.id)} title="删除">
-                        删
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ border: '1px solid var(--card-border)', borderRadius: 12, padding: 10, minWidth: 0, overflow: 'hidden' }}>
-              <div className="row rowGap" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <div className="hint">共 {filteredBooks.length} 本</div>
-                <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <div className="hint">已选 {selectedCount}</div>
-                  <select
-                    disabled={selectedCount === 0}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      if (!v) return
-                      const ids = selectedIdsList()
-                      const gid = v === '__ungrouped__' ? null : v
-                      void onMoveBooks(ids, gid)
-                      e.currentTarget.value = ''
-                    }}
-                    defaultValue=""
-                    style={{ height: 34, borderRadius: 10, border: '1px solid var(--card-border)', padding: '0 10px', fontSize: 13, maxWidth: '100%' }}
-                    title="批量移动到分组"
-                  >
-                    <option value="">批量移动到…</option>
-                    <option value="__ungrouped__">未分组</option>
-                    {groupOptions.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button className="btn" disabled={selectedCount === 0} onClick={() => void onDeleteBooks(selectedIdsList())}>
-                    批量删除
-                  </button>
-                </div>
-              </div>
-
-              {books.length === 0 ? <div className="hint">还没有书，先导入一个 txt。</div> : null}
-              {filteredBooks.length === 0 && books.length > 0 ? <div className="hint">没有匹配的书。</div> : null}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 380, overflow: 'auto', paddingRight: 2 }}>
-                {filteredBooks.map((b) => {
+              ) : (
+                filteredBooks.map((b) => {
                   const checked = Boolean(selectedBookIds[b.id])
-                  const isActive = b.id === activeBookId
                   return (
                     <div
                       key={b.id}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '22px minmax(0,1fr)',
-                        gap: 8,
-                        alignItems: 'start',
-                        border: '1px solid var(--card-border)',
-                        borderRadius: 12,
-                        padding: 10,
-                        background: isActive ? 'rgba(59,130,246,0.10)' : 'transparent',
-                        minWidth: 0
+                      className={`toolBookRow ${activeBookId === b.id ? 'toolBookRowActive' : ''}`}
+                      onClick={() => {
+                        setActiveBookId(b.id)
+                        void loadBook(b.id)
+                      }}
+                      onDoubleClick={() => {
+                        void (async () => {
+                          setActiveBookId(b.id)
+                          const detail = ((await window.api?.libraryGetBook?.(b.id)) as any) as BookDetail
+                          const itemId = detail?.progress?.itemId ?? detail?.items?.[0]?.id
+                          const lineIndex = detail?.progress?.lineIndex ?? 0
+                          if (itemId) await startReading(b.id, itemId, lineIndex)
+                        })()
                       }}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={(e) => setSelectedBookIds((m) => ({ ...m, [b.id]: e.target.checked }))}
-                        title="选择"
-                        style={{ marginTop: 4 }}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          setSelectedBookIds((m) => ({ ...m, [b.id]: e.target.checked }))
+                        }}
                       />
-                      <div style={{ minWidth: 0 }}>
+                      <div className="toolProgressTrack"><div className="toolProgressFill" style={{ width: b.lastReadAt ? '100%' : '12%' }} /></div>
+                      <div className="toolBookMain">
+                        <div className="toolBookTitle">{b.title}</div>
+                        <div className="toolBookSub">{b.domain || b.sourceRef || '未阅读'}</div>
+                      </div>
+                      <div className="toolBookActions">
                         <button
-                          className="btn"
-                          onClick={() => {
-                            setActiveBookId(b.id)
-                            void loadBook(b.id)
+                          className="toolIconBtn"
+                          title="重命名"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void (async () => {
+                              const next = window.prompt('重命名书籍', b.title)
+                              if (!next) return
+                              const title = next.trim()
+                              if (!title) return
+                              await window.api?.bookRename?.({ bookId: b.id, newTitle: title })
+                              await refreshLibrary(b.id)
+                            })()
                           }}
-                          style={{ textAlign: 'left', width: '100%', minWidth: 0 }}
-                          title="打开目录与控制"
                         >
-                          <div style={{ fontWeight: 600, wordBreak: 'break-word' }}>{b.title}</div>
-                          <div className="hint" style={{ marginTop: 2 }}>
-                            {b.sourceType === 'file' ? '本地文件' : '网页'}
-                            {b.domain ? ` · ${b.domain}` : ''}
-                            {b.lastReadAt ? ` · ${new Date(b.lastReadAt).toLocaleString()}` : ' · 未阅读'}
-                          </div>
+                          ✏️
                         </button>
-
-                        <div className="row" style={{ gap: 8, justifyContent: 'flex-start', marginTop: 8, alignItems: 'center' }}>
-                          <select
-                            value=""
-                            onChange={(e) => {
-                              const v = e.target.value
-                              const gid = v === '__ungrouped__' ? null : v
-                              if (!v) return
-                              void onMoveBooks([b.id], gid)
-                            }}
-                            style={{
-                              height: 34,
-                              borderRadius: 10,
-                              border: '1px solid var(--card-border)',
-                              padding: '0 10px',
-                              fontSize: 13,
-                              maxWidth: '100%'
-                            }}
-                            title="移动到分组"
-                          >
-                            <option value="">移动到…</option>
-                            <option value="__ungrouped__">未分组</option>
-                            {groupOptions.map((g) => (
-                              <option key={g.id} value={g.id}>
-                                {g.label}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            className="btn"
-                            onClick={() => {
-                              setActiveBookId(b.id)
-                              setActive(null)
-                              void (async () => {
-                                const next = window.prompt('重命名书籍', b.title)
-                                if (!next) return
-                                const title = next.trim()
-                                if (!title) return
-                                await window.api?.libraryRenameBook?.({ bookId: b.id, title })
-                                await refreshLibrary(b.id)
-                              })()
-                            }}
-                          >
-                            重命名
-                          </button>
-                          <button className="btn" onClick={() => void onDeleteBooks([b.id])} title="删除该书">
-                            删除
-                          </button>
-                        </div>
+                        <button
+                          className="toolIconBtn"
+                          title="删除"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void onDeleteBooks([b.id])
+                          }}
+                        >
+                          🗑️
+                        </button>
                       </div>
                     </div>
                   )
-                })}
+                })
+              )}
+            </div>
+
+            <div className="toolWebCenter">
+              <div className="toolWebMode">
+                <button className={`toolChip ${webMode === 'article' ? 'toolChipActive' : ''}`} onClick={() => setWebMode('article')}>文章</button>
+                <button className={`toolChip ${webMode === 'book' ? 'toolChipActive' : ''}`} onClick={() => setWebMode('book')}>目录</button>
               </div>
+              <input
+                className="toolWebInput"
+                type="text"
+                value={webUrl}
+                placeholder="输入网址后回车或点击提取"
+                onChange={(e) => setWebUrl(e.target.value)}
+              />
+              <div className="hint">支持目录页或章节页，系统会自动识别</div>
+              <div className="row" style={{ justifyContent: 'center', marginTop: 8 }}>
+                <button className="toolChip" onClick={() => void onOpenWeb()} disabled={webLoading}>打开网页</button>
+                <button className="toolChip toolChipActive" onClick={() => void (webMode === 'article' ? onExtractWeb() : onExtractWebBookDetail())} disabled={webLoading}>
+                  {webMode === 'article' ? '提取当前页' : '解析目录'}
+                </button>
+                <button className="toolChip" onClick={() => void onRefreshAndRetry()} disabled={webLoading}>刷新重试</button>
+              </div>
+              <div className={`toolStatusPill ${webErr ? 'toolStatusPillErr' : webLoading ? '' : 'toolStatusPillOk'}`}>
+                {webLoading ? '提取中...' : webErr ? `失败：${webErrCode || 'UNKNOWN'}` : webPreview || webBookPreview ? '成功' : '待提取'}
+              </div>
+              {webErr ? (
+                <button className="toolErrorStrip" onClick={() => setWebErrExpanded((v) => !v)}>
+                  {webErr}（点击展开）
+                </button>
+              ) : null}
+              {webErr && webErrExpanded ? (
+                <div className="row" style={{ justifyContent: 'center' }}>
+                  <button
+                    className="toolChip"
+                    title="当自动提取失败时，手动框选正文区域"
+                    onClick={() => void onExtractWebFromSelection()}
+                  >
+                    手动框选
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="card">
-          <h3 className="cardTitle">目录与控制</h3>
-          {loading ? <div className="hint">加载中…</div> : null}
-          {!active ? <div className="hint" style={{ marginTop: 8 }}>选择一本书以查看目录。</div> : null}
-
-          {active ? (
-            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div className="cardSection">
-                <span className="sectionLabel">阅读条操作</span>
-                <div className="row rowGap" style={{ marginTop: 6, flexWrap: 'wrap' }}>
-                  <button
-                    className="btn btnPrimary"
-                    onClick={() => {
-                      const p = active.progress
-                      const itemId = p?.itemId ?? active.items[0]?.id
-                      const lineIndex = p?.lineIndex ?? 0
-                      if (itemId && activeBookId) void startReading(activeBookId, itemId, lineIndex)
-                    }}
-                  >
-                    继续阅读（暂停）
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      if (activeBookId) void enterReadingAuto(activeBookId)
-                    }}
-                    title="自动进入当前进度（首次章节会按需提取正文）并开始播放"
-                  >
-                    进入阅读（自动）
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      if (activeBookId) void window.api?.overlayResume?.({ bookId: activeBookId, cols: cfg.cols })
-                    }}
-                  >
-                    打开阅读条（暂停）
-                  </button>
-                  <button className="btn" onClick={() => void window.api?.overlaySetPlaying?.(true)}>
-                    开始
-                  </button>
-                  <button className="btn" onClick={() => void window.api?.overlaySetPlaying?.(false)}>
-                    暂停
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => void window.api?.overlayStepDisplay?.(-1)}
-                    title="上一页"
-                  >
-                    ‹ 上一页
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => void window.api?.overlayStepDisplay?.(1)}
-                    title="下一页"
-                  >
-                    下一页 ›
-                  </button>
-                  <button className="btn" onClick={() => void window.api?.overlayHide?.()} title="关闭阅读条">
-                    关闭
-                  </button>
-                </div>
+        <section className="toolBottom">
+          {!active ? (
+            <div className="toolEmpty">未识别到目录，请尝试手动刷新</div>
+          ) : (
+            <>
+              <div className="toolBottomHead">
+                <strong>{active.book.title}</strong>
+                <button className="toolChip" onClick={() => setShowChapters((v) => !v)}>{showChapters ? '收起目录' : '展开目录'}</button>
               </div>
-
-              <div className="cardSection">
-                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="sectionLabel">目录</span>
-                  <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
-                    <button className="btn" onClick={() => setShowChapters((v) => !v)}>
-                      {showChapters ? '收起目录' : '展开目录'}
-                    </button>
-                  </div>
-                </div>
-                <div className="hint" style={{ marginTop: 6 }}>
-                  在章节列表中点击标题会把该章加载到阅读条（暂停）。把鼠标移到某章上会出现“从本章阅读”快捷按钮。
-                </div>
-                {showChapters ? (
-                  <div style={{ maxHeight: 380, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
-                    {(() => {
-                      const total = active.items.length
-                      const totalPages = Math.max(1, Math.ceil(total / chapterPageSize))
-                      const safePage = Math.max(0, Math.min(totalPages - 1, chapterPage))
-                      const start = safePage * chapterPageSize
-                      const end = Math.min(total, start + chapterPageSize)
-                      const pageItems = active.items.slice(start, end)
-
-                      const pageOptions = Array.from({ length: totalPages }, (_, p) => {
-                        const s = p * chapterPageSize + 1
-                        const e = Math.min(total, (p + 1) * chapterPageSize)
-                        return { p, label: `${s}-${e}` }
-                      })
-
-                      return (
-                        <>
-                          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                            <div className="hint">
-                              共 {total} 章 · 本页 {start + 1}-{end}
-                            </div>
-                            <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-                              <button className="btn" disabled={safePage <= 0} onClick={() => setChapterPage((p) => Math.max(0, p - 1))} title="上一页">
-                                上一页
-                              </button>
-                              <select
-                                value={safePage}
-                                onChange={(e) => setChapterPage(Number(e.target.value))}
-                                style={{ height: 34, borderRadius: 10, border: '1px solid var(--card-border)', padding: '0 10px', fontSize: 13 }}
-                                title="选择章节页（每页 20 章）"
-                              >
-                                {pageOptions.map((o) => (
-                                  <option key={o.p} value={o.p}>
-                                    {o.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                className="btn"
-                                disabled={safePage >= totalPages - 1}
-                                onClick={() => setChapterPage((p) => Math.min(totalPages - 1, p + 1))}
-                                title="下一页"
-                              >
-                                下一页
-                              </button>
-                            </div>
-                          </div>
-
-                          {pageItems.map((it) => (
-                      <div key={it.id} className="chapterRow">
+              {showChapters ? (
+                <div
+                  ref={chapterListRef}
+                  className="toolVirtualList"
+                  onScroll={(e) => setChapterScrollTop((e.currentTarget as HTMLDivElement).scrollTop)}
+                >
+                  <div style={{ height: chapterTotal * chapterRowHeight, position: 'relative' }}>
+                    <div style={{ transform: `translateY(${chapterOffsetY}px)` }}>
+                      {chapterVisibleItems.map((it) => (
                         <button
-                          className="btn chapterMain"
+                          key={it.id}
+                          className="toolChapterItem"
                           onClick={() => {
                             if (!activeBookId) return
                             void startReading(activeBookId, it.id, 0)
                           }}
-                          style={{ textAlign: 'left', flex: 1 }}
-                          title="加载到阅读条（暂停）"
                         >
                           {it.orderIndex + 1}. {it.title}
                         </button>
-                        <button
-                          className="btn chapterAction"
-                          onClick={() => {
-                            if (!activeBookId) return
-                            void startReading(activeBookId, it.id, 0)
-                          }}
-                          title="从本章开头加载到阅读条（暂停）"
-                        >
-                          从本章阅读
-                        </button>
-                      </div>
-                          ))}
-                        </>
-                      )
-                    })()}
+                      ))}
+                    </div>
                   </div>
-                ) : null}
+                </div>
+              ) : null}
+            </>
+          )}
+
+          {webPreview ? (
+            <div className="toolPreviewPane">
+              <div className="toolBottomHead">
+                <strong>{webPreview.title}</strong>
+                <button className="toolChip toolChipActive" onClick={() => void onSaveWeb()}>保存到书架</button>
               </div>
+              <pre className="toolPreviewText">{webPreview.preview || '（暂无预览）'}</pre>
             </div>
           ) : null}
-        </div>
+
+          {webBookPreview ? (
+            <div className="toolPreviewPane">
+              <div className="toolBottomHead">
+                <strong>{webBookPreview.bookTitle}</strong>
+                <button className="toolChip toolChipActive" onClick={() => void onImportWebBook()}>导入目录</button>
+              </div>
+              <div className="hint">目录 {webBookPreview.chapters.length} 章</div>
+            </div>
+          ) : null}
+
+          <div className="toolSettingsGrid" style={{ marginTop: 12 }}>
+            <label className="labelBlock">
+              <span className="hint">字体颜色</span>
+              <input type="color" value={cfg.textColor} onChange={(e) => applyCfg({ ...cfg, textColor: e.target.value })} />
+            </label>
+            <label className="labelBlock">
+              <span className="hint">背景颜色</span>
+              <input type="color" value={cfg.bgColor} onChange={(e) => applyCfg({ ...cfg, bgColor: e.target.value })} />
+            </label>
+            <label className="labelBlock">
+              <span className="hint">透明度 {cfg.bgOpacity.toFixed(2)}</span>
+              <input type="range" min={0} max={1} step={0.01} value={cfg.bgOpacity} onChange={(e) => applyCfg({ ...cfg, bgOpacity: Number(e.target.value) })} />
+            </label>
+            <label className="labelBlock">
+              <span className="hint">字/分钟 {cfg.charsPerMinute}</span>
+              <input
+                type="range"
+                min={1}
+                max={1000}
+                step={1}
+                value={cfg.charsPerMinute}
+                onChange={(e) =>
+                  applyCfg({
+                    ...cfg,
+                    charsPerMinute: Number(e.target.value),
+                    speedMs: calcSpeedMsFromCpm({
+                      cols: cfg.cols,
+                      rows: cfg.rows,
+                      linesPerTick: cfg.linesPerTick,
+                      charsPerMinute: Number(e.target.value)
+                    })
+                  })
+                }
+              />
+            </label>
+          </div>
+        </section>
+      </main>
+
+      <div className="toolBottomBar">
+        <button
+          className="toolPrimaryBtn"
+          onClick={() => {
+            if (activeBookId) void enterReadingAuto(activeBookId)
+          }}
+          disabled={!activeBookId}
+        >
+          启动阅读条
+        </button>
+        <button className="toolChip" onClick={() => void window.api?.overlaySetPlaying?.(false)}>暂停</button>
+        <button className="toolChip" onClick={() => void window.api?.overlayResume?.({ bookId: activeBookId || '', cols: cfg.cols })} disabled={!activeBookId}>打开阅读条</button>
+        <button className="toolChip" onClick={() => void refreshLibrary(activeBookId || undefined)}>刷新</button>
       </div>
     </div>
   )

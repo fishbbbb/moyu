@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('api', {
   }) => ipcRenderer.invoke('library:importWebBook', args),
   libraryUpdateItemContent: (args: { itemId: string; contentText: string }) => ipcRenderer.invoke('library:updateItemContent', args),
   libraryRenameBook: (args: { bookId: string; title: string }) => ipcRenderer.invoke('library:renameBook', args),
+  bookRename: (args: { bookId: string; newTitle: string }) => ipcRenderer.invoke('book:rename', args),
+  bookDelete: (args: { bookId: string }) => ipcRenderer.invoke('book:delete', args),
+  bookDeleteMany: (args: { bookIds: string[] }) => ipcRenderer.invoke('book:deleteMany', args),
+  bookSearch: (args: { query: string }) => ipcRenderer.invoke('book:search', args),
   libraryListGroups: () => ipcRenderer.invoke('library:listGroups'),
   libraryCreateGroup: (args: { title: string; parentId?: string | null }) => ipcRenderer.invoke('library:createGroup', args),
   libraryRenameGroup: (args: { groupId: string; title: string }) => ipcRenderer.invoke('library:renameGroup', args),
@@ -34,6 +38,9 @@ contextBridge.exposeInMainWorld('api', {
   webExtract: () => ipcRenderer.invoke('web:extract'),
   webExtractAtUrl: (args: { url: string }) => ipcRenderer.invoke('web:extractAtUrl', args),
   webExtractStructuredAtUrl: (args: { url: string }) => ipcRenderer.invoke('web:extractStructuredAtUrl', args),
+  webExtractFromSelection: (args?: { rect?: { x: number; y: number; width: number; height: number } }) =>
+    ipcRenderer.invoke('web:extractFromSelection', args ?? {}),
+  webRefresh: () => ipcRenderer.invoke('web:refresh'),
   webExtractBookDetail: () => ipcRenderer.invoke('web:extractBookDetail'),
   webClose: () => ipcRenderer.invoke('web:close'),
 
@@ -109,6 +116,10 @@ export type Api = typeof globalThis & {
     }) => Promise<unknown>
     libraryUpdateItemContent: (args: { itemId: string; contentText: string }) => Promise<unknown>
     libraryRenameBook: (args: { bookId: string; title: string }) => Promise<unknown>
+    bookRename: (args: { bookId: string; newTitle: string }) => Promise<unknown>
+    bookDelete: (args: { bookId: string }) => Promise<unknown>
+    bookDeleteMany: (args: { bookIds: string[] }) => Promise<unknown>
+    bookSearch: (args: { query: string }) => Promise<unknown>
     libraryListGroups: () => Promise<unknown>
     libraryCreateGroup: (args: { title: string; parentId?: string | null }) => Promise<unknown>
     libraryRenameGroup: (args: { groupId: string; title: string }) => Promise<unknown>
@@ -120,6 +131,8 @@ export type Api = typeof globalThis & {
     webExtract: () => Promise<unknown>
     webExtractAtUrl: (args: { url: string }) => Promise<unknown>
     webExtractStructuredAtUrl: (args: { url: string }) => Promise<unknown>
+    webExtractFromSelection: (args?: { rect?: { x: number; y: number; width: number; height: number } }) => Promise<unknown>
+    webRefresh: () => Promise<unknown>
     webExtractBookDetail: () => Promise<unknown>
     webClose: () => Promise<unknown>
 

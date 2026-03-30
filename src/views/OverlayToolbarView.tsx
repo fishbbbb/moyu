@@ -235,6 +235,18 @@ export function OverlayToolbarView() {
   }, [])
 
   useEffect(() => {
+    // 主窗口全局样式把 body 设成了浅色背景；工具栏窗口需要完全透明。
+    const prevBodyBg = document.body.style.background
+    const prevHtmlBg = document.documentElement.style.background
+    document.body.style.background = 'transparent'
+    document.documentElement.style.background = 'transparent'
+    return () => {
+      document.body.style.background = prevBodyBg
+      document.documentElement.style.background = prevHtmlBg
+    }
+  }, [])
+
+  useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === LS.cfg || e.key === LS.cfgLegacy) setCfg(getCfgWithMigration(cfg))
       if (e.key === LS_TOOLBAR) setToolbarKeys(getToolbarCfg(allKeys))
@@ -244,6 +256,15 @@ export function OverlayToolbarView() {
   }, [cfg])
 
   const playing = Boolean(session?.playing ?? false)
+
+  useEffect(() => {
+    document.documentElement.classList.add('overlayAuxHost')
+    document.body.classList.add('overlayAuxHost')
+    return () => {
+      document.documentElement.classList.remove('overlayAuxHost')
+      document.body.classList.remove('overlayAuxHost')
+    }
+  }, [])
 
   async function bumpFont(delta: number) {
     const fontSize = clamp(cfg.fontSize + delta, 10, 64)
@@ -277,6 +298,7 @@ export function OverlayToolbarView() {
 
   return (
     <div
+      className="overlayToolbarRoot"
       style={{
         height: '100vh',
         display: 'flex',
@@ -285,6 +307,7 @@ export function OverlayToolbarView() {
         padding: 8,
         boxSizing: 'border-box',
         userSelect: 'none',
+        background: 'transparent',
         // 让工具栏窗口本体可拖拽；按钮等交互区域会覆盖为 no-drag
         WebkitAppRegion: 'drag'
       } as any}

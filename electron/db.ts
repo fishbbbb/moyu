@@ -165,6 +165,25 @@ export function listBooks(): Array<BookRow & { lastReadAt: number | null }> {
     .all() as any
 }
 
+export function searchBooks(query: string): Array<BookRow & { lastReadAt: number | null }> {
+  const d = getDb()
+  const q = `%${String(query ?? '').trim()}%`
+  if (!String(query ?? '').trim()) return listBooks()
+  return d
+    .prepare(
+      `
+      SELECT
+        b.*,
+        p.updatedAt as lastReadAt
+      FROM books b
+      LEFT JOIN progress p ON p.bookId = b.id
+      WHERE b.title LIKE ?
+      ORDER BY COALESCE(p.updatedAt, b.updatedAt) DESC
+    `
+    )
+    .all(q) as any
+}
+
 export function getBook(bookId: string): { book: BookRow; items: ItemRow[]; progress: ProgressRow | null } {
   const d = getDb()
   const book = d.prepare(`SELECT * FROM books WHERE id = ?`).get(bookId) as BookRow | undefined
@@ -333,6 +352,19 @@ export function renameBook(bookId: string, title: string) {
   return { ok: true }
 }
 
+export function updateBookTitle(bookId: string, newTitle: string) {
+  const title = String(newTitle ?? '').trim()
+  if (!title) throw new Error('INVALID_TITLE')
+  return renameBook(bookId, title)
+}
+
+export function deleteBook(bookId: string) {
+  const id = String(bookId ?? '').trim()
+  if (!id) throw new Error('BOOK_NOT_FOUND')
+  // reuse cascade-safe bulk deletion path
+  return deleteBooks({ bookIds: [id] })
+}
+
 export function listGroups(): GroupRow[] {
   const d = getDb()
   return d
@@ -440,14 +472,14 @@ export function moveBooks(input: { bookIds: string[]; groupId: string | null }) 
 export function deleteBooks(input: { bookIds: string[] }) {
   const d = getDb()
   const bookIds = (input.bookIds ?? []).filter(Boolean)
-  if (bookIds.length === 0) return { ok: true, unchanged: true }
+  if (bookIds.length === 0) return { ok: true, unchanged: true, deletedCount: 0 }
   const placeholders = bookIds.map(() => '?').join(',')
   const tx = d.transaction(() => {
     // progress table doesn't have FK to books; clean manually
     d.prepare(`DELETE FROM progress WHERE bookId IN (${placeholders})`).run(...bookIds)
     // items are ON DELETE CASCADE via books FK
-    d.prepare(`DELETE FROM books WHERE id IN (${placeholders})`).run(...bookIds)
-    return { ok: true }
+    const deleted = d.prepare(`DELETE FROM books WHERE id IN (${placeholders})`).run(...bookIds)
+    return { ok: true, deletedCount: Number(deleted.changes ?? 0) }
   })
   return tx()
 }

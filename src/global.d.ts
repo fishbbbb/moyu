@@ -23,6 +23,10 @@ declare global {
       }) => Promise<unknown>
       libraryUpdateItemContent: (args: { itemId: string; contentText: string }) => Promise<unknown>
       libraryRenameBook: (args: { bookId: string; title: string }) => Promise<unknown>
+      bookRename: (args: { bookId: string; newTitle: string }) => Promise<unknown>
+      bookDelete: (args: { bookId: string }) => Promise<unknown>
+      bookDeleteMany: (args: { bookIds: string[] }) => Promise<unknown>
+      bookSearch: (args: { query: string }) => Promise<unknown>
       libraryListGroups: () => Promise<unknown>
       libraryCreateGroup: (args: { title: string; parentId?: string | null }) => Promise<unknown>
       libraryRenameGroup: (args: { groupId: string; title: string }) => Promise<unknown>
@@ -33,7 +37,9 @@ declare global {
       webOpen: (args: { url: string }) => Promise<unknown>
       webExtract: () => Promise<unknown>
       webExtractAtUrl: (args: { url: string }) => Promise<unknown>
-    webExtractStructuredAtUrl: (args: { url: string }) => Promise<unknown>
+      webExtractStructuredAtUrl: (args: { url: string }) => Promise<unknown>
+      webExtractFromSelection: (args?: { rect?: { x: number; y: number; width: number; height: number } }) => Promise<unknown>
+      webRefresh: () => Promise<unknown>
       webExtractBookDetail: () => Promise<unknown>
       webClose: () => Promise<unknown>
 
