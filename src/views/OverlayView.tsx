@@ -24,8 +24,24 @@ type OverlaySession = {
   playing: boolean
 }
 
+type HotkeyAction = 'playPause' | 'pagePrev' | 'pageNext' | 'chapterPrev' | 'chapterNext'
+
+type HotkeyBinding = {
+  key: string
+  ctrl?: boolean
+  alt?: boolean
+  shift?: boolean
+  meta?: boolean
+}
+
+type HotkeyConfig = {
+  bindings: Partial<Record<HotkeyAction, HotkeyBinding[]>>
+}
+
 const LS = { cfg: 'overlay:cfg', cfgLegacy: 'demo:cfg' } as const
 const LS_FONT_FAMILY = 'overlay:fontFamily' as const
+const LS_KMODE = 'overlay:kMode' as const
+const LS_HOTKEYS = 'overlay:hotkeys' as const
 /** 阅读条最多显示行数（与拖动缩放/设置/工具栏一致） */
 
 function getJson<T>(key: string, fallback: T): T {
@@ -40,6 +56,65 @@ function getJson<T>(key: string, fallback: T): T {
 
 function setJson(key: string, val: unknown) {
   localStorage.setItem(key, JSON.stringify(val))
+}
+
+function normalizeKeyFromEvent(e: KeyboardEvent) {
+  const k = String(e.key || '')
+  if (!k) return ''
+  if (k === ' ') return 'Space'
+  if (k.length === 1) return k.toUpperCase()
+  return k
+}
+
+function getDefaultHotkeys(): HotkeyConfig {
+  return {
+    bindings: {
+      playPause: [{ key: 'Space' }],
+      pagePrev: [{ key: 'ArrowLeft' }],
+      pageNext: [{ key: 'ArrowRight' }],
+      chapterPrev: [{ key: 'ArrowUp' }],
+      chapterNext: [{ key: 'ArrowDown' }]
+    }
+  }
+}
+
+function normalizeHotkeysConfig(input: unknown): HotkeyConfig {
+  const fallback = getDefaultHotkeys()
+  if (!input || typeof input !== 'object') return fallback
+  const raw = input as any
+  const src = raw?.bindings && typeof raw.bindings === 'object' ? raw.bindings : {}
+  const actions: HotkeyAction[] = ['playPause', 'pagePrev', 'pageNext', 'chapterPrev', 'chapterNext']
+  const bindings: Partial<Record<HotkeyAction, HotkeyBinding[]>> = {}
+  for (const a of actions) {
+    const v = src[a]
+    if (Array.isArray(v)) {
+      bindings[a] = v
+        .filter((x) => x && typeof x === 'object' && typeof (x as any).key === 'string' && String((x as any).key).trim())
+        .map((x) => ({
+          key: String((x as any).key),
+          ctrl: Boolean((x as any).ctrl),
+          alt: Boolean((x as any).alt),
+          shift: Boolean((x as any).shift),
+          meta: Boolean((x as any).meta)
+        }))
+      continue
+    }
+    // 兼容旧版单值结构：{ action: { key, ... } | null }
+    if (v && typeof v === 'object' && typeof v.key === 'string' && String(v.key).trim()) {
+      bindings[a] = [
+        {
+          key: String(v.key),
+          ctrl: Boolean(v.ctrl),
+          alt: Boolean(v.alt),
+          shift: Boolean(v.shift),
+          meta: Boolean(v.meta)
+        }
+      ]
+      continue
+    }
+    bindings[a] = []
+  }
+  return { bindings }
 }
 
 function getCfgWithMigration(fallback: OverlayConfig): OverlayConfig {
@@ -97,6 +172,8 @@ export function OverlayView() {
   const [idx, setIdx] = useState<number>(0)
   const [playing, setPlaying] = useState<boolean>(false)
   const [focused, setFocused] = useState(false)
+  const [kMode, setKMode] = useState<boolean>(() => Boolean(getJson(LS_KMODE, { enabled: false } as any)?.enabled))
+  const [hotkeys, setHotkeys] = useState<HotkeyConfig>(() => normalizeHotkeysConfig(getJson<HotkeyConfig>(LS_HOTKEYS, getDefaultHotkeys())))
   const [bounds, setBounds] = useState<{ width: number; height: number } | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const cfgRef = useRef<OverlayConfig | null>(null)
@@ -125,7 +202,7 @@ export function OverlayView() {
   const idxRef = useRef(0)
   const sessionRef = useRef<OverlaySession | null>(null)
   const lastSyncRef = useRef<{ at: number; lineIndex: number }>({ at: 0, lineIndex: -1 })
-  const lastRepaintRef = useRef<{ at: number; lineIndex: number }>({ at: 0, lineIndex: -1 })
+  const lastRepaintRef = useRef<{ at: number; sig: string }>({ at: 0, sig: '' })
   /** 阅读框拖拽缩放时：用预览行列驱动排版，松手后再 applyCfg，避免每帧写盘/重算导致卡顿 */
   const [previewRowsCols, setPreviewRowsCols] = useState<null | { rows: number; cols: number }>(null)
   /** 正文区域实际像素尺寸（随窗口变化即时更新，避免只依赖 IPC bounds 滞后导致 canvas 被拉伸压扁） */
@@ -154,6 +231,19 @@ export function OverlayView() {
   )
 
   const timerRef = useRef<number | null>(null)
+
+  function setKModeAndPersist(next: boolean, reason: 'ipc' | 'local') {
+    const enabled = Boolean(next)
+    setKMode(enabled)
+    setJson(LS_KMODE, { enabled })
+    if (enabled) {
+      // 进入 K：默认收起 HUD 与辅助窗，保持画面干净
+      setFocused(false)
+      void window.api?.overlayToolbarHide?.()
+      void window.api?.overlaySettingsHide?.()
+    }
+    if (reason === 'local') void window.api?.overlayKModeSet?.(enabled)
+  }
 
   useEffect(() => {
     cfgRef.current = cfg
@@ -265,7 +355,7 @@ export function OverlayView() {
   }, [session, displayRows, idx, lines])
   const showPlaceholder = !session || lines.length === 0
   const topSafe = 0
-  const frameActive = focused
+  const frameActive = focused && !kMode
   // 背景是否可见：聚焦时按配置显示；失焦时完全透明（只留文字），保持“真正透明”的视觉目标
   const effectiveBgOpacity = frameActive ? cfg.bgOpacity : 0
   const lineH = Math.round(clamp(Math.floor(Number(cfg.fontSize ?? 16)), 10, 64) * 1.25)
@@ -346,7 +436,7 @@ export function OverlayView() {
     pendingJumpRef.current = null
     setIdx(nextIdx)
     void window.api?.overlaySyncLineIndex?.({ lineIndex: nextIdx })
-  }, [cfg.rows, pendingJumpSeq, session?.itemId, lines.length])
+  }, [cfg.readMode, cfg.rows, cfg.linesPerTick, pendingJumpSeq, session?.itemId, lines.length])
 
   // 监听正文容器真实尺寸，驱动列数与 canvas backing store（比仅靠 IPC bounds 更跟手、避免压扁）
   useLayoutEffect(() => {
@@ -495,7 +585,12 @@ export function OverlayView() {
               pendingJumpSeqRef.current = nextSeq
               pendingJumpRef.current = {
                 kind: 'prevToEnd',
-                rows: Math.max(1, Math.floor(cfgRef.current?.rows ?? 1)),
+                // readMode=page：上一页/下一页按整页 rows
+                // readMode=scroll：上一页/下一页按 linesPerTick（按行推进）
+                rows:
+                  (cfgRef.current?.readMode ?? 'scroll') === 'page'
+                    ? Math.max(1, Math.floor(Number(cfgRef.current?.rows ?? 1)))
+                    : Math.max(1, Math.floor(Number(cfgRef.current?.linesPerTick ?? 1))),
                 fromItemId: sessionRef.current?.itemId ?? null,
                 seq: nextSeq
               }
@@ -552,17 +647,40 @@ export function OverlayView() {
   }, [cfg.linesPerTick, cfg.readMode, cfg.rows, idx, session?.bookId, session?.itemId])
 
   useEffect(() => {
-    // 透明窗口残影的更底层兜底：让主进程对窗口执行一次强制重绘/取帧。
-    // 只在播放时做，并做节流，避免资源开销过高。
-    if (!playing) return
+    // 透明窗口残影兜底：任何“可见内容签名”变化都触发一次强制重绘（含手动/自动翻页）。
+    // 仅做轻量节流，避免高频触发导致资源开销。
     if (!session || lines.length === 0) return
+    const repaintSig = [
+      session.itemId,
+      idx,
+      displayRows,
+      effectiveCols,
+      cfg.fontSize,
+      cfg.textColor,
+      cfg.textOpacity,
+      showPlaceholder ? '1' : '0',
+      visibleText
+    ].join('|')
+
     const now = Date.now()
     const last = lastRepaintRef.current
-    const minMs = 350
-    if (now - last.at < minMs && last.lineIndex === idx) return
-    lastRepaintRef.current = { at: now, lineIndex: idx }
+    const minMs = 120
+    if (repaintSig === last.sig && now - last.at < minMs) return
+
+    lastRepaintRef.current = { at: now, sig: repaintSig }
     void window.api?.overlayForceRepaint?.()
-  }, [idx, lines.length, playing, session])
+  }, [
+    session,
+    lines.length,
+    idx,
+    displayRows,
+    effectiveCols,
+    cfg.fontSize,
+    cfg.textColor,
+    cfg.textOpacity,
+    showPlaceholder,
+    visibleText
+  ])
 
   useEffect(() => {
     sessionRef.current = session
@@ -722,6 +840,90 @@ export function OverlayView() {
   }, [cfg.linesPerTick, cfg.speedMs, lines.length, playing, session])
 
   useEffect(() => {
+    // K 模式快捷键监听（仅 Overlay 主窗前台；不做全局热键）
+    if (!kMode) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        setKModeAndPersist(false, 'local')
+        return
+      }
+      const s = sessionRef.current
+      if (!s?.bookId || !s?.itemId) return
+
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || (target as any).isContentEditable)) return
+
+      const key = normalizeKeyFromEvent(e)
+      if (!key) return
+
+      const bindings = hotkeys?.bindings ?? {}
+      const match = (b: HotkeyBinding | null | undefined) => {
+        if (!b || !b.key) return false
+        if (String(b.key).toUpperCase() !== String(key).toUpperCase()) return false
+        if (Boolean(b.ctrl) !== Boolean(e.ctrlKey)) return false
+        if (Boolean(b.alt) !== Boolean(e.altKey)) return false
+        if (Boolean(b.shift) !== Boolean(e.shiftKey)) return false
+        if (Boolean(b.meta) !== Boolean(e.metaKey)) return false
+        return true
+      }
+
+      const actions: HotkeyAction[] = ['playPause', 'pagePrev', 'pageNext', 'chapterPrev', 'chapterNext']
+      const hit = actions.find((a) => {
+        const list = Array.isArray((bindings as any)[a]) ? ((bindings as any)[a] as HotkeyBinding[]) : []
+        return list.some((b) => match(b))
+      })
+      if (!hit) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      const doPauseIfPlaying = async () => {
+        if (!playingRef.current) return
+        setPlaying(false)
+        await window.api?.overlaySetPlaying?.(false)
+      }
+
+      const stepLines =
+        (cfgRef.current?.readMode ?? 'scroll') === 'page'
+          ? Math.max(1, Math.floor(Number(cfgRef.current?.rows ?? 1)))
+          : Math.max(1, Math.floor(Number(cfgRef.current?.linesPerTick ?? 1)))
+
+      void (async () => {
+        if (hit === 'playPause') {
+          const next = !playingRef.current
+          setPlaying(next)
+          await window.api?.overlaySetPlaying?.(next)
+          return
+        }
+        if (hit === 'pagePrev') {
+          await doPauseIfPlaying()
+          await window.api?.overlayStepDisplay?.(-1 * stepLines)
+          return
+        }
+        if (hit === 'pageNext') {
+          await doPauseIfPlaying()
+          await window.api?.overlayStepDisplay?.(1 * stepLines)
+          return
+        }
+        if (hit === 'chapterPrev') {
+          await doPauseIfPlaying()
+          await window.api?.overlayChapterStep?.(-1)
+          return
+        }
+        if (hit === 'chapterNext') {
+          await doPauseIfPlaying()
+          await window.api?.overlayChapterStep?.(1)
+          return
+        }
+      })()
+    }
+    window.addEventListener('keydown', handler, { capture: true })
+    return () => window.removeEventListener('keydown', handler, { capture: true } as any)
+  }, [hotkeys, kMode])
+
+  useEffect(() => {
     // 让 overlay 页面本身“看不见多余 UI”，只留一行
     document.body.style.background = 'transparent'
     const applyFont = (v: string | null) => {
@@ -752,6 +954,32 @@ export function OverlayView() {
     }
     window.addEventListener('blur', onBlur)
     return () => window.removeEventListener('blur', onBlur)
+  }, [])
+
+  useEffect(() => {
+    // 监听主进程广播的 K 模式切换（来自工具栏/设置窗）
+    const off =
+      window.api?.overlayOnKMode?.((payload) => {
+        const p = payload as any
+        const enabled = Boolean(p?.enabled)
+        setKModeAndPersist(enabled, 'ipc')
+      }) ?? null
+    return () => off?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    // 监听快捷键配置变化（设置窗写 localStorage -> 其他窗口触发 storage event）
+    function onStorage(e: StorageEvent) {
+      if (e.key === LS_HOTKEYS) setHotkeys(normalizeHotkeysConfig(getJson<HotkeyConfig>(LS_HOTKEYS, getDefaultHotkeys())))
+      if (e.key === LS_KMODE) {
+        const enabled = Boolean(getJson(LS_KMODE, { enabled: false } as any)?.enabled)
+        setKModeAndPersist(enabled, 'ipc')
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -876,8 +1104,10 @@ export function OverlayView() {
     const { charW, lineH: lineHeight } = getTextMetrics({ fontSize })
     // 与 applyBoundsFromCfg 的公式互逆：这里保守取整，避免抖动
     const cols = Math.max(1, Math.floor((Math.max(0, input.width - paddingX * 2 - COL_FIT_SAFETY_PX) + charW * 0.35) / Math.max(1, charW)))
-    // 额外留一点余量给圆角/阴影；并扣掉 applyBoundsFromCfg 里加的 12px
-    const rows = Math.max(1, Math.floor((Math.max(0, input.height - paddingY * 2 - EXTRA_H) + lineHeight * 0.35) / Math.max(1, lineHeight)))
+    // 额外留一点余量给圆角/阴影；并扣掉 applyBoundsFromCfg 里加的 EXTRA_H
+    // 重要：rows 必须“保守不溢出”，否则 canvas 高度会比 holder 实际可用高度更大，
+    // 导致最后一行字下半部分/外框底边被窗口底缘裁剪。
+    const rows = Math.max(1, Math.floor(Math.max(0, input.height - paddingY * 2 - EXTRA_H) / Math.max(1, lineHeight)))
     return { rows, cols }
   }
 
@@ -1001,6 +1231,11 @@ export function OverlayView() {
         if (isOnDragStrip(e.target)) return
         // 如果本次是“拖动窗口”手势，则不弹出工具栏（避免拖完就弹）
         if (moveGestureRef.current?.moved) return
+        // K 模式：单击正文退出（不立刻弹出工具栏，避免一次点击做两件事）
+        if (kMode) {
+          setKModeAndPersist(false, 'local')
+          return
+        }
         setFocused(true)
         void window.api?.overlayToolbarShow?.()
       }}
@@ -1031,20 +1266,55 @@ export function OverlayView() {
         title={line}
       >
         {/* 顶部细小区域作为拖拽条，避免遮挡正文点击 */}
-        <div
-          data-dragstrip="1"
-          style={
-            {
-              position: 'absolute',
-              top: -6,
-              left: 0,
-              right: 0,
-              height: 6,
-              WebkitAppRegion: 'drag',
-              cursor: 'grab'
-            } as any
-          }
-        />
+        {/* 当阅读框处于聚焦并显示 resize 时，顶部拖拽条需要“让路”给上边缘缩放手柄，
+            否则部分窗口尺寸下会出现：按住上方框无法触发缩放手势。 */}
+        {focused && !kMode ? (
+          <>
+            <div
+              data-dragstrip="1"
+              style={
+                {
+                  position: 'absolute',
+                  top: -6,
+                  left: 0,
+                  width: 10,
+                  height: 6,
+                  WebkitAppRegion: 'drag',
+                  cursor: 'grab'
+                } as any
+              }
+            />
+            <div
+              data-dragstrip="1"
+              style={
+                {
+                  position: 'absolute',
+                  top: -6,
+                  right: 0,
+                  width: 10,
+                  height: 6,
+                  WebkitAppRegion: 'drag',
+                  cursor: 'grab'
+                } as any
+              }
+            />
+          </>
+        ) : (
+          <div
+            data-dragstrip="1"
+            style={
+              {
+                position: 'absolute',
+                top: -6,
+                left: 0,
+                right: 0,
+                height: 6,
+                WebkitAppRegion: 'drag',
+                cursor: 'grab'
+              } as any
+            }
+          />
+        )}
         {/* 给工具条预留一条“透明安全区”，视觉上像放在阅读框外，但不会被窗口裁切 */}
         {topSafe ? <div style={{ height: topSafe }} /> : null}
         <div
@@ -1089,7 +1359,7 @@ export function OverlayView() {
             }}
           />
           {/* 缩放手柄相对阅读框（holder）定位；之前若在满高父级上会贴窗口底缘压在边框上 */}
-          {focused ? (
+          {focused && !kMode ? (
             <>
             <div
               title="缩放手柄：拖曳调整阅读框大小"
