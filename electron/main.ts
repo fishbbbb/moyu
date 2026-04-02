@@ -354,6 +354,12 @@ function broadcastOverlayBounds() {
   overlaySettingsWindow?.webContents.send('overlay:bounds', b)
 }
 
+function broadcastOverlayKMode(enabled: boolean) {
+  overlayWindow?.webContents.send('overlay:kMode', { enabled: Boolean(enabled) })
+  overlayToolbarWindow?.webContents.send('overlay:kMode', { enabled: Boolean(enabled) })
+  overlaySettingsWindow?.webContents.send('overlay:kMode', { enabled: Boolean(enabled) })
+}
+
 function registerShortcuts() {
   globalShortcut.register('CommandOrControl+Shift+X', () => {
     if (!overlayWindow) return
@@ -1246,15 +1252,36 @@ ipcMain.handle('overlay:syncLineIndex', (_evt, args: { lineIndex: number }) => {
 ipcMain.handle('overlay:forceRepaint', () => {
   if (!overlayWindow || overlayWindow.isDestroyed()) return { ok: false }
   try {
+    // macOS：透明无边框窗口的“残影”常与系统阴影层陈旧有关（Apple 侧合成问题），
+    // Electron 官方建议用 invalidateShadow 清掉陈旧阴影/残影，比反复 nudge 更接近根因。
+    // 参见 electron#47693 / PR#32452。
+    if (process.platform === 'darwin') overlayWindow.invalidateShadow()
+  } catch {
+    // ignore
+  }
+  try {
     // Electron/Chromium 在透明窗口下偶发“合成残影”，invalidate 能强制重新取帧。
     overlayWindow.webContents.invalidate()
   } catch {
     // ignore
   }
   try {
-    // 某些合成路径下 invalidate 不够“硬”，再用一次 same-bounds 刷新（不改变大小/位置）
+    // 某些合成路径下 same-bounds 可能被优化掉：做一次“1 像素往返”强制合成刷新。
     const b = overlayWindow.getBounds()
+    const wa = screen.getDisplayMatching(b).workArea
+    const canNudgeDown = b.y + b.height + 1 <= wa.y + wa.height
+    const y1 = canNudgeDown ? b.y + 1 : Math.max(wa.y, b.y - 1)
+    overlayWindow.setBounds({ ...b, y: y1 }, false)
     overlayWindow.setBounds({ ...b }, false)
+  } catch {
+    // ignore
+  }
+  try {
+    // 透明窗口在 macOS 上偶发需要一次轻微 opacity nudge 才会立即清掉旧帧。
+    if (process.platform === 'darwin' && overlayWindow.isVisible()) {
+      overlayWindow.setOpacity(0.999)
+      overlayWindow.setOpacity(1)
+    }
   } catch {
     // ignore
   }
@@ -1376,6 +1403,12 @@ ipcMain.handle('overlay:stepDisplay', (_evt, args: { delta: number }) => {
   const delta = Math.trunc(Number(args?.delta ?? 0))
   overlayWindow.webContents.send('overlay:stepDisplay', { delta })
   return { ok: true }
+})
+
+ipcMain.handle('overlay:kModeSet', (_evt, args: { enabled: boolean }) => {
+  const enabled = Boolean(args?.enabled)
+  broadcastOverlayKMode(enabled)
+  return { ok: true, enabled }
 })
 
 ipcMain.handle('overlay:setBounds', (_evt, args: { x?: number; y?: number; width?: number; height?: number }) => {

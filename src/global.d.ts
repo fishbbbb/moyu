@@ -62,6 +62,7 @@ declare global {
       overlayGetBounds: () => Promise<unknown>
       overlayStep: (delta: number) => Promise<unknown>
       overlayStepDisplay: (delta: number) => Promise<unknown>
+      overlayKModeSet: (enabled: boolean) => Promise<unknown>
       overlaySetBounds: (args: { x?: number; y?: number; width?: number; height?: number }) => Promise<unknown>
       overlaySetBoundsFast: (args: { x?: number; y?: number; width?: number; height?: number }) => void
       overlayMoveStart: () => void
@@ -72,6 +73,7 @@ declare global {
       overlayOnSession: (cb: (session: unknown) => void) => () => void
       overlayOnBounds: (cb: (bounds: unknown) => void) => () => void
       overlayOnStepDisplay: (cb: (payload: unknown) => void) => () => void
+      overlayOnKMode: (cb: (payload: unknown) => void) => () => void
     }
   }
 }

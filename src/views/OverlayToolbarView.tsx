@@ -84,6 +84,7 @@ type ToolbarKey =
   | 'pageNext'
   | 'chapterPrev'
   | 'chapterNext'
+  | 'kbdMode'
   | 'fontMinus'
   | 'fontPlus'
   | 'settings'
@@ -177,10 +178,11 @@ function IconPlus() {
 }
 
 function IconSettings() {
+  // 使用 24×24 素材并等比缩放到 16px：原 16×16 齿廓 path 会略超出 viewBox，根 svg 默认 overflow:hidden 导致缺角
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
       <path
-        d="M8 5.25A2.75 2.75 0 1 0 8 10.75 2.75 2.75 0 0 0 8 5.25zm0-3.25c.3 0 .57.18.68.46l.38.96c.18.05.35.11.52.19l.95-.39a.75.75 0 0 1 .95.32l.75 1.3a.75.75 0 0 1-.14.91l-.72.72c.03.19.05.38.05.58 0 .2-.02.39-.05.58l.72.72c.24.24.3.61.14.91l-.75 1.3a.75.75 0 0 1-.95.32l-.95-.39a4 4 0 0 1-.52.19l-.38.96A.75.75 0 0 1 8 14.5H7a.75.75 0 0 1-.68-.46l-.38-.96a4 4 0 0 1-.52-.19l-.95.39a.75.75 0 0 1-.95-.32l-.75-1.3a.75.75 0 0 1 .14-.91l.72-.72A4 4 0 0 1 3.5 8c0-.2.02-.39.05-.58l-.72-.72a.75.75 0 0 1-.14-.91l.75-1.3a.75.75 0 0 1 .95-.32l.95.39c.17-.08.34-.14.52-.19l.38-.96A.75.75 0 0 1 7 2h1z"
+        d="M19.43 12.98c.04-.32.07-.64.07-.98 0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"
         fill="currentColor"
       />
     </svg>
@@ -191,6 +193,22 @@ function IconClose() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
       <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconKeyboard() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M2.2 5.2c0-.66.54-1.2 1.2-1.2h9.2c.66 0 1.2.54 1.2 1.2v5.6c0 .66-.54 1.2-1.2 1.2H3.4c-.66 0-1.2-.54-1.2-1.2V5.2zm1.2-.2a.2.2 0 0 0-.2.2v5.6c0 .11.09.2.2.2h9.2a.2.2 0 0 0 .2-.2V5.2a.2.2 0 0 0-.2-.2H3.4z"
+        fill="currentColor"
+      />
+      <path
+        d="M4.2 6.2h.9v.9h-.9v-.9zm1.6 0h.9v.9h-.9v-.9zm1.6 0h.9v.9h-.9v-.9zm1.6 0h.9v.9h-.9v-.9zm1.6 0h.9v.9h-.9v-.9zM4.2 7.8h.9v.9h-.9v-.9zm1.6 0h.9v.9h-.9v-.9zm1.6 0h.9v.9h-.9v-.9zm1.6 0h.9v.9h-.9v-.9zm1.6 0h.9v.9h-.9v-.9zM4.2 9.4h7.9v.9H4.2v-.9z"
+        fill="currentColor"
+        opacity="0.9"
+      />
     </svg>
   )
 }
@@ -214,7 +232,7 @@ export function OverlayToolbarView() {
     })
   )
   const allKeys: ToolbarKey[] = useMemo(
-    () => ['playPause', 'chapterPrev', 'chapterNext', 'pagePrev', 'pageNext', 'fontMinus', 'fontPlus', 'settings', 'close'],
+    () => ['playPause', 'chapterPrev', 'chapterNext', 'pagePrev', 'pageNext', 'kbdMode', 'fontMinus', 'fontPlus', 'settings', 'close'],
     []
   )
   const [toolbarKeys, setToolbarKeys] = useState<ToolbarKey[]>(() => getToolbarCfg(allKeys))
@@ -281,8 +299,14 @@ export function OverlayToolbarView() {
   async function stepPage(deltaPages: number) {
     // 若当前在自动阅读，先暂停，再按“当前页”做相对翻页，避免跳回自动阅读开始位置
     if (playing) await window.api?.overlaySetPlaying?.(false)
-    const step = Math.max(1, Math.floor(cfg.rows || 1))
-    await window.api?.overlayStepDisplay?.(deltaPages * step)
+    // overlayOnStepDisplay 的 delta 是“显示行数”的增量：
+    // - readMode=page：每次前进/后退 rows 行（整页）
+    // - readMode=scroll：每次前进/后退 linesPerTick 行（按行推进）
+    const stepLines =
+      (cfg.readMode ?? 'scroll') === 'page'
+        ? Math.max(1, Math.floor(cfg.rows || 1))
+        : Math.max(1, Math.floor(cfg.linesPerTick || 1))
+    await window.api?.overlayStepDisplay?.(deltaPages * stepLines)
   }
 
   async function stepChapter(delta: number) {
@@ -295,6 +319,20 @@ export function OverlayToolbarView() {
   // 用它来 disable 会造成“明明还能翻却按钮变灰/无效”的错觉。
   const canPrev = Boolean(session)
   const canNext = Boolean(session)
+
+  async function toggleKMode() {
+    const raw = localStorage.getItem('overlay:kMode')
+    let enabled = false
+    try {
+      enabled = Boolean(JSON.parse(raw || '{}')?.enabled)
+    } catch {
+      enabled = false
+    }
+    const next = !enabled
+    localStorage.setItem('overlay:kMode', JSON.stringify({ enabled: next }))
+    await window.api?.overlayKModeSet?.(next)
+    // 开启 K 后应保持画面干净：由 Overlay 端负责收起工具栏，这里只发起切换即可
+  }
 
   return (
     <div
@@ -367,6 +405,11 @@ export function OverlayToolbarView() {
         </div>
         <div className="overlayToolbarDivider" />
         <div className="overlayToolbarGroup">
+          {hasKey(toolbarKeys, 'kbdMode') ? (
+            <button className="overlayToolBtn" onClick={() => void toggleKMode()} title="键盘操控">
+              <IconKeyboard />
+            </button>
+          ) : null}
           {hasKey(toolbarKeys, 'settings') ? (
             <button className="overlayToolBtn" onClick={() => void window.api?.overlaySettingsShow?.()} title="阅读框设置">
               <IconSettings />

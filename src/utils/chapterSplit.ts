@@ -59,6 +59,20 @@ export function splitTextToChapters(inputText: string, options?: Partial<Chapter
 
   const isLikelyHeadingLine = (lineTrimmed: string, prevTrimmed: string, nextTrimmed: string) => {
     if (!lineTrimmed) return false
+
+    // 对“强章节标题”（第X章/卷X/Chapter X）放宽过滤：
+    // 很多小说的标题行是“标题 + 一段补充文案”，后半段会带 `，。` 等标点。
+    // 之前的通用规则会把这种行误判成“正文句子”，导致章节稀疏跳号（你在 fls.txt 上遇到的情况）。
+    const isStrongChapterTitle =
+      /^\s*第\s*[零一二三四五六七八九十百千两0-9]+\s*[章回节卷话集篇幕部]/.test(lineTrimmed) ||
+      /^\s*(Chapter|CHAPTER)\s+\d+\b/i.test(lineTrimmed) ||
+      /^\s*卷\s*[零一二三四五六七八九十百千两0-9]+/.test(lineTrimmed)
+    if (isStrongChapterTitle) {
+      // 标题行通常不会长到像整段正文；给一个相对宽松的上限，避免误把正文开头当标题。
+      if (lineTrimmed.length > 120) return false
+      return true
+    }
+
     // 避免正文句子误判成标题：标题行一般不会有明显句末/逗号类标点
     if (/[。！？；;：:，,]/.test(lineTrimmed)) return false
     // 太长的行更像正文

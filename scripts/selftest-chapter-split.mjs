@@ -44,6 +44,20 @@ function splitTextToChaptersForSelftest(inputText) {
 
   const isLikelyHeadingLine = (lineTrimmed, prevTrimmed, nextTrimmed) => {
     if (!lineTrimmed) return false
+
+    // 对“强章节标题”（第X章/卷X/Chapter X）放宽过滤：
+    // 很多小说的标题行是“标题 + 一段补充文案”，后半段会带 `，。` 等标点。
+    // 否则会把这种行误判成“正文句子”，导致章节稀疏跳号。
+    const isStrongChapterTitle =
+      /^\s*第\s*[零一二三四五六七八九十百千两0-9]+\s*[章回节卷话集篇幕部]/.test(lineTrimmed) ||
+      /^\s*(Chapter|CHAPTER)\s+\d+\b/i.test(lineTrimmed) ||
+      /^\s*卷\s*[零一二三四五六七八九十百千两0-9]+/.test(lineTrimmed)
+    if (isStrongChapterTitle) {
+      // 标题行通常不会长到像整段正文；给一个相对宽松的上限，避免误把正文开头当标题。
+      if (lineTrimmed.length > 120) return false
+      return true
+    }
+
     if (/[。！？；;：:，,]/.test(lineTrimmed)) return false
     if (lineTrimmed.length > 60) return false
     const isolated = !prevTrimmed || !nextTrimmed
@@ -148,6 +162,13 @@ function main() {
     'basic-diXhua-spaces',
     `前言：一些说明。\n\n第 2 话\n第二话正文。\n\n第 3 话\n第三话正文。`,
     { shouldNotBeFull: true, minCount: 2, firstTitleIncludes: '第 2 话' }
+  )
+
+  // 3c) 强章节标题后半段带标点/省略号：应仍能正确切
+  runCase(
+    'strong-chapter-title-with-punctuation',
+    `第1章 开端\n这里是第一章正文。\n第2章 胭脂骨 郎呀郎，巴不得下世你为女来我……\n这里是第二章正文继续。\n第3章 好友 两人那叫一个臭味相投，沆瀣一气……\n这里是第三章正文继续。`,
+    { shouldNotBeFull: true, minCount: 3, firstTitleIncludes: '第1章' }
   )
 
   // 3b) Head insertion: 第一章不从开头开始，且开头足够长 → should add “开头”

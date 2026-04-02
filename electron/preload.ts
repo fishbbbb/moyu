@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('api', {
   overlayGetBounds: () => ipcRenderer.invoke('overlay:getBounds'),
   overlayStep: (delta: number) => ipcRenderer.invoke('overlay:step', { delta }),
   overlayStepDisplay: (delta: number) => ipcRenderer.invoke('overlay:stepDisplay', { delta }),
+  overlayKModeSet: (enabled: boolean) => ipcRenderer.invoke('overlay:kModeSet', { enabled }),
   overlaySetBounds: (args: { x?: number; y?: number; width?: number; height?: number }) => ipcRenderer.invoke('overlay:setBounds', args),
   overlaySetBoundsFast: (args: { x?: number; y?: number; width?: number; height?: number }) => ipcRenderer.send('overlay:setBoundsFast', args),
   overlayMoveStart: () => ipcRenderer.send('overlay:moveStart'),
@@ -91,6 +92,12 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_evt: unknown, payload: unknown) => cb(payload)
     ipcRenderer.on('overlay:stepDisplay', handler)
     return () => ipcRenderer.off('overlay:stepDisplay', handler)
+  },
+
+  overlayOnKMode: (cb: (payload: unknown) => void) => {
+    const handler = (_evt: unknown, payload: unknown) => cb(payload)
+    ipcRenderer.on('overlay:kMode', handler)
+    return () => ipcRenderer.off('overlay:kMode', handler)
   }
 })
 

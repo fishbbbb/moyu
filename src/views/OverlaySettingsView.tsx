@@ -18,6 +18,8 @@ type OverlayConfig = {
 const LS = { cfg: 'overlay:cfg', cfgLegacy: 'demo:cfg' } as const
 const LS_FONT_FAMILY = 'overlay:fontFamily' as const
 const LS_TOOLBAR = 'overlay:toolbar' as const
+const LS_KMODE = 'overlay:kMode' as const
+const LS_HOTKEYS = 'overlay:hotkeys' as const
 
 type ToolbarKey =
   | 'playPause'
@@ -25,6 +27,7 @@ type ToolbarKey =
   | 'pageNext'
   | 'chapterPrev'
   | 'chapterNext'
+  | 'kbdMode'
   | 'fontMinus'
   | 'fontPlus'
   | 'settings'
@@ -36,11 +39,96 @@ const ALL_TOOLBAR_KEYS: Array<{ key: ToolbarKey; label: string }> = [
   { key: 'chapterNext', label: '下一章' },
   { key: 'pagePrev', label: '上一页' },
   { key: 'pageNext', label: '下一页' },
+  { key: 'kbdMode', label: '键盘操控' },
   { key: 'fontMinus', label: '字号减小' },
   { key: 'fontPlus', label: '字号增大' },
   { key: 'settings', label: '设置' },
   { key: 'close', label: '关闭' }
 ]
+
+type HotkeyAction = 'playPause' | 'pagePrev' | 'pageNext' | 'chapterPrev' | 'chapterNext'
+
+type HotkeyBinding = {
+  key: string
+  ctrl?: boolean
+  alt?: boolean
+  shift?: boolean
+  meta?: boolean
+}
+
+type HotkeyConfig = {
+  bindings: Partial<Record<HotkeyAction, HotkeyBinding[]>>
+}
+
+function normalizeKeyFromEvent(e: KeyboardEvent) {
+  const k = String(e.key || '')
+  if (!k) return ''
+  if (k === ' ') return 'Space'
+  if (k.length === 1) return k.toUpperCase()
+  return k
+}
+
+function bindingToLabel(b: HotkeyBinding | null | undefined) {
+  if (!b || !b.key) return '未设置'
+  const parts: string[] = []
+  if (b.meta) parts.push('Meta')
+  if (b.ctrl) parts.push('Ctrl')
+  if (b.alt) parts.push('Alt')
+  if (b.shift) parts.push('Shift')
+  parts.push(String(b.key))
+  return parts.join('+')
+}
+
+function getDefaultHotkeys(): HotkeyConfig {
+  return {
+    bindings: {
+      playPause: [{ key: 'Space' }],
+      pagePrev: [{ key: 'ArrowLeft' }],
+      pageNext: [{ key: 'ArrowRight' }],
+      chapterPrev: [{ key: 'ArrowUp' }],
+      chapterNext: [{ key: 'ArrowDown' }]
+    }
+  }
+}
+
+function normalizeHotkeysConfig(input: unknown): HotkeyConfig {
+  const fallback = getDefaultHotkeys()
+  if (!input || typeof input !== 'object') return fallback
+  const raw = input as any
+  const src = raw?.bindings && typeof raw.bindings === 'object' ? raw.bindings : {}
+  const actions: HotkeyAction[] = ['playPause', 'pagePrev', 'pageNext', 'chapterPrev', 'chapterNext']
+  const bindings: Partial<Record<HotkeyAction, HotkeyBinding[]>> = {}
+  for (const a of actions) {
+    const v = src[a]
+    if (Array.isArray(v)) {
+      bindings[a] = v
+        .filter((x) => x && typeof x === 'object' && typeof (x as any).key === 'string' && String((x as any).key).trim())
+        .map((x) => ({
+          key: String((x as any).key),
+          ctrl: Boolean((x as any).ctrl),
+          alt: Boolean((x as any).alt),
+          shift: Boolean((x as any).shift),
+          meta: Boolean((x as any).meta)
+        }))
+      continue
+    }
+    // backward compatible: single binding object
+    if (v && typeof v === 'object' && typeof v.key === 'string' && String(v.key).trim()) {
+      bindings[a] = [
+        {
+          key: String(v.key),
+          ctrl: Boolean(v.ctrl),
+          alt: Boolean(v.alt),
+          shift: Boolean(v.shift),
+          meta: Boolean(v.meta)
+        }
+      ]
+      continue
+    }
+    bindings[a] = []
+  }
+  return { bindings }
+}
 
 function getJson<T>(key: string, fallback: T): T {
   const raw = localStorage.getItem(key)
@@ -67,9 +155,10 @@ function charsPerTickFromCfg(input: { cols: number; linesPerTick: number }) {
 }
 
 function calcSpeedMsFromCpm(input: { cols: number; rows?: number; linesPerTick: number; charsPerMinute: number }) {
-  const cpm = clamp(Math.floor(input.charsPerMinute || 100), 1, 1000)
+  const cpm = clamp(Math.floor(Number(input.charsPerMinute ?? 100)), 0, 2000)
   const charsPerTick = charsPerTickFromCfg(input)
   const rows = Math.max(1, Math.floor(input.rows ?? 1))
+  if (cpm <= 0) return 30_000
   let ms = Math.round((60_000 * charsPerTick) / cpm)
   const minPageMs = 2800
   const minMsPerTickFromPage = Math.round((minPageMs * Math.max(1, input.linesPerTick)) / rows)
@@ -82,7 +171,7 @@ function calcCpmFromSpeedMs(input: { cols: number; linesPerTick: number; speedMs
   const ms = clamp(Math.floor(input.speedMs || 600), 80, 30_000)
   const charsPerTick = charsPerTickFromCfg(input)
   const cpm = Math.round((60_000 * charsPerTick) / ms)
-  return clamp(cpm, 1, 1000)
+  return clamp(cpm, 0, 2000)
 }
 
 function getCfgWithMigration(fallback: OverlayConfig): OverlayConfig {
@@ -123,6 +212,9 @@ export function OverlaySettingsView() {
       return fallback
     }
   })
+  const [kModeEnabled, setKModeEnabled] = useState<boolean>(() => Boolean(getJson(LS_KMODE, { enabled: false } as any)?.enabled))
+  const [hotkeys, setHotkeys] = useState<HotkeyConfig>(() => normalizeHotkeysConfig(getJson<HotkeyConfig>(LS_HOTKEYS, getDefaultHotkeys())))
+  const [captureAction, setCaptureAction] = useState<HotkeyAction | null>(null)
 
   useEffect(() => {
     document.documentElement.classList.add('overlayAuxHost')
@@ -145,6 +237,29 @@ export function OverlaySettingsView() {
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === LS_TOOLBAR) {
+        const fallback = ALL_TOOLBAR_KEYS.map((x) => x.key)
+        const raw = localStorage.getItem(LS_TOOLBAR)
+        if (!raw) return setToolbarKeys(fallback)
+        try {
+          const parsed = JSON.parse(raw) as any
+          const keys = Array.isArray(parsed?.keys) ? (parsed.keys as any[]) : []
+          const safe = keys.filter((k) => typeof k === 'string') as ToolbarKey[]
+          setToolbarKeys(safe.length ? safe : fallback)
+        } catch {
+          setToolbarKeys(fallback)
+        }
+      }
+      if (e.key === LS_KMODE) setKModeEnabled(Boolean(getJson(LS_KMODE, { enabled: false } as any)?.enabled))
+      if (e.key === LS_HOTKEYS) setHotkeys(normalizeHotkeysConfig(getJson<HotkeyConfig>(LS_HOTKEYS, getDefaultHotkeys())))
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const cpmHint = useMemo(() => calcCpmFromSpeedMs({ cols: cfg.cols, linesPerTick: cfg.linesPerTick, speedMs: cfg.speedMs }), [cfg.cols, cfg.linesPerTick, cfg.speedMs])
@@ -179,7 +294,7 @@ export function OverlaySettingsView() {
   function applyCfg(next: OverlayConfig) {
     const autoSpeed = Boolean(next.autoSpeed ?? false)
     const readMode: 'scroll' | 'page' = next.readMode === 'page' || next.readMode === 'scroll' ? next.readMode : 'scroll'
-    const baseCpm = clamp(Math.floor(Number(next.charsPerMinute ?? 100)), 1, 1000)
+    const baseCpm = clamp(Math.floor(Number(next.charsPerMinute ?? 100)), 0, 2000)
     const effectiveLinesPerTick =
       readMode === 'page' ? Math.max(1, Math.floor(Number(next.rows ?? 1))) : clamp(Math.floor(Number(next.linesPerTick ?? 1)), 1, 10)
     const computedSpeedMs = autoSpeed
@@ -224,6 +339,54 @@ export function OverlaySettingsView() {
     setToolbarKeys(safe)
     setJson(LS_TOOLBAR, { keys: safe })
   }
+
+  async function setKMode(next: boolean) {
+    const enabled = Boolean(next)
+    setKModeEnabled(enabled)
+    setJson(LS_KMODE, { enabled })
+    await window.api?.overlayKModeSet?.(enabled)
+    if (enabled) {
+      // 从设置页开启 K：更像“确认进入”，收起设置窗以保持画面干净
+      await window.api?.overlaySettingsHide?.()
+    }
+  }
+
+  function setHotkeysConfig(next: HotkeyConfig) {
+    const safe: HotkeyConfig = normalizeHotkeysConfig(next)
+    setHotkeys(safe)
+    setJson(LS_HOTKEYS, safe)
+  }
+
+  useEffect(() => {
+    if (!captureAction) return
+    const handler = (e: KeyboardEvent) => {
+      // 录入时屏蔽默认行为
+      e.preventDefault()
+      e.stopPropagation()
+      const key = normalizeKeyFromEvent(e)
+      if (!key || key === 'Escape') {
+        setCaptureAction(null)
+        return
+      }
+      const binding: HotkeyBinding = {
+        key,
+        ctrl: e.ctrlKey,
+        alt: e.altKey,
+        shift: e.shiftKey,
+        meta: e.metaKey
+      }
+      const prevList = Array.isArray(hotkeys?.bindings?.[captureAction]) ? (hotkeys?.bindings?.[captureAction] as HotkeyBinding[]) : []
+      const sig = JSON.stringify(binding)
+      const exists = prevList.some((x) => JSON.stringify(x) === sig)
+      const next: HotkeyConfig = {
+        bindings: { ...(hotkeys?.bindings ?? {}), [captureAction]: exists ? prevList : [...prevList, binding] }
+      }
+      setHotkeysConfig(next)
+      setCaptureAction(null)
+    }
+    window.addEventListener('keydown', handler, { capture: true })
+    return () => window.removeEventListener('keydown', handler, { capture: true } as any)
+  }, [captureAction, hotkeys])
 
   return (
     <div
@@ -381,13 +544,22 @@ export function OverlaySettingsView() {
               <span style={{ fontSize: 12, minWidth: 64 }}>字/分钟</span>
               <input
                 type="range"
-                min={1}
-                max={1000}
-                  step={1}
+                min={0}
+                max={2000}
+                step={1}
                 value={cfg.charsPerMinute}
                 onChange={(e) => applyCfg({ ...cfg, autoSpeed: true, charsPerMinute: Number(e.target.value) })}
               />
-              <span style={{ width: 56, textAlign: 'right', fontSize: 12 }}>{cfg.charsPerMinute}</span>
+              <input
+                type="number"
+                min={0}
+                max={2000}
+                step={1}
+                value={cfg.charsPerMinute}
+                onChange={(e) => applyCfg({ ...cfg, autoSpeed: true, charsPerMinute: Number(e.target.value) })}
+                style={{ width: 76 }}
+              />
+              <span style={{ width: 72, textAlign: 'right', fontSize: 12 }}>{cfg.charsPerMinute}</span>
             </label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, minWidth: 64 }}>每次前进</span>
@@ -458,6 +630,118 @@ export function OverlaySettingsView() {
             })}
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>提示：默认全选；取消后工具栏会立刻隐藏对应按钮。</div>
+        </div>
+
+        <div style={{ marginTop: 14, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>键盘操控（K 模式）</div>
+          <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', WebkitAppRegion: 'no-drag' } as any}>
+            <input type="checkbox" checked={kModeEnabled} onChange={(e) => void setKMode(e.target.checked)} />
+            <span style={{ fontSize: 12 }}>启用键盘操控（进入后默认收起工具栏与边框；单击正文或按 Esc 退出）</span>
+          </label>
+        </div>
+
+        <div style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>快捷键配置</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {(
+              [
+                { key: 'playPause', label: '开始/暂停' },
+                { key: 'pagePrev', label: '上一页' },
+                { key: 'pageNext', label: '下一页' },
+                { key: 'chapterPrev', label: '上一章' },
+                { key: 'chapterNext', label: '下一章' }
+              ] as Array<{ key: HotkeyAction; label: string }>
+            ).map((it) => {
+              const curList = Array.isArray(hotkeys?.bindings?.[it.key]) ? (hotkeys?.bindings?.[it.key] as HotkeyBinding[]) : []
+              const capturing = captureAction === it.key
+              return (
+                <div
+                  key={it.key}
+                  style={{
+                    display: 'flex',
+                    gap: 10,
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 10px',
+                    borderRadius: 10,
+                    background: 'rgba(255,255,255,0.08)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    WebkitAppRegion: 'no-drag'
+                  } as any}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.95 }}>{it.label}</div>
+                    {capturing ? (
+                      <div style={{ fontSize: 11, opacity: 0.75 }}>请按下要绑定的按键（Esc 取消）…</div>
+                    ) : curList.length > 0 ? (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {curList.map((b, idx) => (
+                          <span
+                            key={`${it.key}-${idx}-${bindingToLabel(b)}`}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '2px 8px',
+                              fontSize: 11,
+                              borderRadius: 999,
+                              background: 'rgba(255,255,255,0.12)',
+                              border: '1px solid rgba(255,255,255,0.2)'
+                            }}
+                          >
+                            {bindingToLabel(b)}
+                            <button
+                              className="btn"
+                              style={{ padding: '0 6px', lineHeight: 1.2, background: 'transparent', border: 'none', color: '#fff' } as any}
+                              onClick={() => {
+                                const nextList = curList.filter((_, i) => i !== idx)
+                                setHotkeysConfig({ bindings: { ...(hotkeys?.bindings ?? {}), [it.key]: nextList } })
+                              }}
+                              title="移除该快捷键"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11, opacity: 0.75 }}>当前：未设置</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                      className="btn"
+                      style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' } as any}
+                      onClick={() => setCaptureAction(capturing ? null : it.key)}
+                    >
+                      {capturing ? '取消' : '录入'}
+                    </button>
+                    <button
+                      className="btn"
+                      style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.18)' } as any}
+                      onClick={() => setHotkeysConfig({ bindings: { ...(hotkeys?.bindings ?? {}), [it.key]: [] } })}
+                      title="清空该动作的所有快捷键"
+                    >
+                      清空
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              className="btn"
+              style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', WebkitAppRegion: 'no-drag' } as any}
+              onClick={() => setHotkeysConfig(getDefaultHotkeys())}
+              title="恢复默认快捷键"
+            >
+              恢复默认
+            </button>
+            <div style={{ fontSize: 11, opacity: 0.6 }}>
+              说明：快捷键仅在 K 模式开启且阅读条窗口在前台时生效（非全局快捷键）。
+            </div>
+          </div>
         </div>
       </div>
     </div>
