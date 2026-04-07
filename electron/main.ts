@@ -29,6 +29,8 @@ let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
 let overlayToolbarWindow: BrowserWindow | null = null
 let overlaySettingsWindow: BrowserWindow | null = null
+/** 与渲染进程 overlay:cfg.contentProtection 同步；新建工具栏/设置窗时需再次应用 */
+let overlayContentProtectionEnabled = false
 let overlayMoveTimer: NodeJS.Timeout | null = null
 let overlayMoveState: null | { winStart: { x: number; y: number }; mouseStart: { x: number; y: number } } = null
 let auxSyncTimer: NodeJS.Timeout | null = null
@@ -165,6 +167,19 @@ function getIndexFileUrl() {
   return `file://${indexPath}`
 }
 
+function applyOverlayContentProtection(enabled: boolean) {
+  overlayContentProtectionEnabled = Boolean(enabled)
+  const wins = [overlayWindow, overlayToolbarWindow, overlaySettingsWindow]
+  for (const w of wins) {
+    if (!w || w.isDestroyed()) continue
+    try {
+      w.setContentProtection(overlayContentProtectionEnabled)
+    } catch {
+      // Linux 等环境可能不支持
+    }
+  }
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
@@ -211,6 +226,7 @@ function createOverlayWindow() {
   } else {
     overlayWindow.loadURL(`${getIndexFileUrl()}#/overlay`)
   }
+  applyOverlayContentProtection(overlayContentProtectionEnabled)
 }
 
 function ensureOverlayToolbarWindow() {
@@ -239,6 +255,7 @@ function ensureOverlayToolbarWindow() {
   overlayToolbarWindow.on('closed', () => {
     overlayToolbarWindow = null
   })
+  applyOverlayContentProtection(overlayContentProtectionEnabled)
   return overlayToolbarWindow
 }
 
@@ -271,6 +288,7 @@ function ensureOverlaySettingsWindow() {
   overlaySettingsWindow.on('blur', () => {
     hideAuxWindows()
   })
+  applyOverlayContentProtection(overlayContentProtectionEnabled)
   return overlaySettingsWindow
 }
 
@@ -346,6 +364,17 @@ function broadcastOverlaySession(session: unknown) {
   overlaySettingsWindow?.webContents.send('overlay:session', session)
 }
 
+/** 书架删除书籍后：若阅读条正读着该书，清空会话避免后续 IPC 读库抛错 */
+function clearOverlaySessionIfBooksRemoved(bookIds: string[]) {
+  const idSet = new Set((bookIds ?? []).map(String).filter(Boolean))
+  if (idSet.size === 0) return
+  const cur = getOverlaySession()
+  if (!cur?.bookId || !idSet.has(cur.bookId)) return
+  setOverlaySession(null)
+  broadcastOverlaySession(null)
+  hideAuxWindows()
+}
+
 function broadcastOverlayBounds() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
   const b = overlayWindow.getBounds()
@@ -413,9 +442,10 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll()
 })
 
-ipcMain.handle('overlay:setConfig', (_evt, cfg: { opacity?: number }) => {
+ipcMain.handle('overlay:setConfig', (_evt, cfg: { opacity?: number; contentProtection?: boolean }) => {
   if (!overlayWindow) return
   if (typeof cfg.opacity === 'number') overlayWindow.setOpacity(cfg.opacity)
+  if (typeof cfg.contentProtection === 'boolean') applyOverlayContentProtection(cfg.contentProtection)
 })
 
 ipcMain.handle('library:listBooks', () => {
@@ -442,12 +472,17 @@ ipcMain.handle('book:rename', (_evt, args: { bookId: string; newTitle: string })
 })
 
 ipcMain.handle('book:delete', (_evt, args: { bookId: string }) => {
-  return deleteBook(String(args?.bookId ?? ''))
+  const id = String(args?.bookId ?? '').trim()
+  const res = deleteBook(id)
+  clearOverlaySessionIfBooksRemoved([id])
+  return res
 })
 
 ipcMain.handle('book:deleteMany', (_evt, args: { bookIds: string[] }) => {
   const bookIds = Array.isArray(args?.bookIds) ? args.bookIds.map(String).filter(Boolean) : []
-  return deleteBooks({ bookIds })
+  const res = deleteBooks({ bookIds })
+  clearOverlaySessionIfBooksRemoved(bookIds)
+  return res
 })
 
 ipcMain.handle('book:search', (_evt, args: { query: string }) => {
@@ -476,7 +511,11 @@ ipcMain.handle('library:deleteGroup', (_evt, args: { groupId: string; mode: 'kee
   const groupId = String(args?.groupId ?? '')
   const mode = args?.mode === 'deleteBooks' ? 'deleteBooks' : 'keepBooks'
   if (!groupId) throw new Error('INVALID_GROUP')
-  return deleteGroup({ groupId, mode })
+  const res = deleteGroup({ groupId, mode })
+  if (Array.isArray(res.deletedBookIds) && res.deletedBookIds.length) {
+    clearOverlaySessionIfBooksRemoved(res.deletedBookIds)
+  }
+  return res
 })
 
 ipcMain.handle('library:moveBooks', (_evt, args: { bookIds: string[]; groupId: string | null }) => {
@@ -487,7 +526,9 @@ ipcMain.handle('library:moveBooks', (_evt, args: { bookIds: string[]; groupId: s
 
 ipcMain.handle('library:deleteBooks', (_evt, args: { bookIds: string[] }) => {
   const bookIds = Array.isArray(args?.bookIds) ? args.bookIds.map(String).filter(Boolean) : []
-  return deleteBooks({ bookIds })
+  const res = deleteBooks({ bookIds })
+  clearOverlaySessionIfBooksRemoved(bookIds)
+  return res
 })
 
 ipcMain.handle(
@@ -1183,7 +1224,16 @@ ipcMain.handle(
 )
 
 ipcMain.handle('overlay:resume', (_evt, args: { bookId: string; cols?: number }) => {
-  const { items, progress } = getBook(args.bookId)
+  let items: ReturnType<typeof getBook>['items']
+  let progress: ReturnType<typeof getBook>['progress']
+  try {
+    ;({ items, progress } = getBook(args.bookId))
+  } catch {
+    setOverlaySession(null)
+    broadcastOverlaySession(null)
+    hideAuxWindows()
+    return null
+  }
   const nextItemId = progress?.itemId ?? items[0]?.id
   if (!nextItemId) throw new Error('NO_ITEM')
   const { item } = getItemContent(nextItemId)
@@ -1201,7 +1251,15 @@ ipcMain.handle('overlay:resume', (_evt, args: { bookId: string; cols?: number })
 ipcMain.handle('overlay:chapterStep', (_evt, args: { delta: number }) => {
   const cur = getOverlaySession()
   if (!cur) return { ok: false }
-  const { items } = getBook(cur.bookId)
+  let items: ReturnType<typeof getBook>['items']
+  try {
+    ;({ items } = getBook(cur.bookId))
+  } catch {
+    setOverlaySession(null)
+    broadcastOverlaySession(null)
+    hideAuxWindows()
+    return { ok: false, reason: 'BOOK_REMOVED' as const }
+  }
   const idx = items.findIndex((x) => x.id === cur.itemId)
   if (idx < 0) return { ok: false }
   const d = Math.trunc(Number(args.delta ?? 0))

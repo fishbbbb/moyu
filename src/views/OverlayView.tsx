@@ -8,6 +8,8 @@ type OverlayConfig = {
   fontSize: number
   rows: number
   cols: number
+  /** 主进程 setContentProtection；尽力降低录屏/截图可见性，非绝对安全 */
+  contentProtection?: boolean
   readMode?: 'scroll' | 'page'
   autoSpeed: boolean
   // 内部使用 ms/tick 驱动定时器；对用户展示用 charsPerMinute（字/分钟）
@@ -226,7 +228,8 @@ export function OverlayView() {
       autoSpeed: true,
       charsPerMinute: 100,
       speedMs: calcSpeedMsFromCpm({ cols: 48, rows: 1, linesPerTick: 1, charsPerMinute: 100 }),
-      linesPerTick: 1
+      linesPerTick: 1,
+      contentProtection: false
     })
   )
 
@@ -1038,7 +1041,8 @@ export function OverlayView() {
       charsPerMinute: baseCpm,
       linesPerTick: clamp(Math.floor(Number(next.linesPerTick ?? 1)), 1, 10),
       bgColor: String(next.bgColor ?? '#000000'),
-      textColor: String(next.textColor ?? '#ffffff')
+      textColor: String(next.textColor ?? '#ffffff'),
+      contentProtection: Boolean(next.contentProtection)
     }
     return safe
   }
@@ -1082,6 +1086,10 @@ export function OverlayView() {
     void applyBoundsFromCfg(cfg)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg.fontSize, cfg.rows, cfg.cols, bounds?.width])
+
+  useEffect(() => {
+    void window.api?.overlaySetConfig?.({ contentProtection: Boolean(cfg.contentProtection) })
+  }, [cfg.contentProtection])
 
   useEffect(() => {
     // Overlay 必须响应来自工具栏/设置窗写入的 cfg，否则“字号/行列/外观”会表现为无效

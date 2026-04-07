@@ -8,6 +8,7 @@ type OverlayConfig = {
   fontSize: number
   rows: number
   cols: number
+  contentProtection?: boolean
   autoSpeed: boolean
   speedMs: number
   charsPerMinute: number
@@ -149,7 +150,8 @@ export function MainView() {
       autoSpeed: true,
       charsPerMinute: 100,
       speedMs: calcSpeedMsFromCpm({ cols: 48, rows: 1, linesPerTick: 1, charsPerMinute: 100 }),
-      linesPerTick: 1
+      linesPerTick: 1,
+      contentProtection: false
     })
   }, [])
 
@@ -256,7 +258,9 @@ export function MainView() {
     setBooks(nextBooks)
     setGroups(nextGroups)
 
-    const chosen = selectBookId ?? activeBookId ?? nextBooks[0]?.id ?? null
+    const preferred = selectBookId ?? activeBookId ?? null
+    const chosen =
+      preferred && nextBooks.some((b) => b.id === preferred) ? preferred : (nextBooks[0]?.id ?? null)
     setActiveBookId(chosen)
     if (chosen) await loadBook(chosen)
     else setActive(null)

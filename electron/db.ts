@@ -436,19 +436,21 @@ export function deleteGroup(input: { groupId: string; mode: 'keepBooks' | 'delet
     const groupIds = collectGroupIds(d, input.groupId)
     const placeholders = groupIds.map(() => '?').join(',')
 
+    let deletedBookIds: string[] | undefined
     if (mode === 'deleteBooks') {
-      const bookIds = d
+      const bookRows = d
         .prepare(`SELECT id FROM books WHERE groupId IN (${placeholders})`)
         .all(...groupIds) as Array<{ id: string }>
-      if (bookIds.length) {
-        deleteBooks({ bookIds: bookIds.map((b) => b.id) })
+      deletedBookIds = bookRows.map((b) => b.id)
+      if (deletedBookIds.length) {
+        deleteBooks({ bookIds: deletedBookIds })
       }
     } else {
       d.prepare(`UPDATE books SET groupId = NULL WHERE groupId IN (${placeholders})`).run(...groupIds)
     }
 
     d.prepare(`DELETE FROM groups WHERE id IN (${placeholders})`).run(...groupIds)
-    return { ok: true }
+    return { ok: true as const, deletedBookIds }
   })
   return tx()
 }

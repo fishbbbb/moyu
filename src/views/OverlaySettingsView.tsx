@@ -8,6 +8,7 @@ type OverlayConfig = {
   fontSize: number
   rows: number
   cols: number
+  contentProtection?: boolean
   readMode?: 'scroll' | 'page'
   autoSpeed: boolean
   speedMs: number
@@ -196,7 +197,8 @@ export function OverlaySettingsView() {
       autoSpeed: true,
       charsPerMinute: 100,
       speedMs: calcSpeedMsFromCpm({ cols: 48, rows: 1, linesPerTick: 1, charsPerMinute: 100 }),
-      linesPerTick: 1
+      linesPerTick: 1,
+      contentProtection: false
     })
   )
   const [toolbarKeys, setToolbarKeys] = useState<ToolbarKey[]>(() => {
@@ -318,7 +320,8 @@ export function OverlaySettingsView() {
       charsPerMinute: baseCpm,
       linesPerTick: clamp(Math.floor(Number(next.linesPerTick ?? 1)), 1, 10),
       bgColor: String(next.bgColor ?? '#000000'),
-      textColor: String(next.textColor ?? '#ffffff')
+      textColor: String(next.textColor ?? '#ffffff'),
+      contentProtection: Boolean(next.contentProtection)
     }
     setCfg(safe)
     setJson(LS.cfg, safe)
@@ -474,6 +477,24 @@ export function OverlaySettingsView() {
               <span style={{ width: 36, textAlign: 'right', fontSize: 12 }}>{cfg.bgOpacity.toFixed(2)}</span>
             </label>
           </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>显示与隐私</div>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <input
+              type="checkbox"
+              checked={Boolean(cfg.contentProtection)}
+              onChange={(e) => applyCfg({ ...cfg, contentProtection: e.target.checked })}
+              style={{ marginTop: 2 }}
+            />
+            <span style={{ fontSize: 12, lineHeight: 1.45 }}>
+              内容保护（降低系统录屏/截图可见性）
+              <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 4 }}>
+                依赖操作系统能力，无法防止拍照或恶意软件；macOS 上部分会议软件、Linux 上可能无效。
+              </span>
+            </span>
+          </label>
         </div>
 
         <div style={{ marginBottom: 14 }}>

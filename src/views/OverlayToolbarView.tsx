@@ -4,6 +4,7 @@ type OverlayConfig = {
   fontSize: number
   rows: number
   cols: number
+  contentProtection?: boolean
   readMode?: 'scroll' | 'page'
   linesPerTick: number
   charsPerMinute: number
@@ -228,7 +229,8 @@ export function OverlayToolbarView() {
       autoSpeed: true,
       charsPerMinute: 100,
       speedMs: 1200,
-      linesPerTick: 1
+      linesPerTick: 1,
+      contentProtection: false
     })
   )
   const allKeys: ToolbarKey[] = useMemo(

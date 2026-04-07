@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
-  overlaySetConfig: (cfg: { opacity?: number }) => ipcRenderer.invoke('overlay:setConfig', cfg),
+  overlaySetConfig: (cfg: { opacity?: number; contentProtection?: boolean }) => ipcRenderer.invoke('overlay:setConfig', cfg),
 
   libraryListBooks: () => ipcRenderer.invoke('library:listBooks'),
   libraryGetBook: (bookId: string) => ipcRenderer.invoke('library:getBook', { bookId }),
@@ -103,7 +103,7 @@ contextBridge.exposeInMainWorld('api', {
 
 export type Api = typeof globalThis & {
   api: {
-    overlaySetConfig: (cfg: { opacity?: number }) => Promise<void>
+    overlaySetConfig: (cfg: { opacity?: number; contentProtection?: boolean }) => Promise<void>
     libraryListBooks: () => Promise<unknown>
     libraryGetBook: (bookId: string) => Promise<unknown>
     libraryImportTxt: (args: { title: string; sourceRef: string; items: Array<{ title: string; contentText: string }> }) => Promise<unknown>

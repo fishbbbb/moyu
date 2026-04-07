@@ -43,7 +43,7 @@ npm run dev
 npm run build
 ```
 
-上述命令产出的是 **`dist/`** 与 **`dist-electron/`** 资源目录，供 Electron 加载；**正式对外分发**（安装包、Windows 绿色 zip、macOS `.app`/`.dmg` 等）需在后续接入 electron-builder 等工具，详见仓库根目录 **`docs/开发手册.md` 第 8 节**。
+上述命令产出的是 **`dist/`** 与 **`dist-electron/`** 资源目录，供 Electron 加载；**正式对外分发**（安装包、Windows 绿色 zip、macOS `.app`/`.dmg` 等）需在后续接入 electron-builder 等工具，详见本目录下 **`docs/开发手册.md` 第 8 节**；完整文档索引见 **`docs/README.md`**。
 
 > 说明：本项目在 `postinstall` 里会执行 `electron` 下载与 `better-sqlite3` 的 native rebuild。若你在国内网络环境下载很慢，可配置 `ELECTRON_MIRROR`（见下方常见问题）。
 
