@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "echo \"(optional) add eslint later\"",
     "selftest:chapters": "node ./scripts/selftest-chapter-split.mjs",
-    "rebuild:native": "PYTHONPATH=./scripts/py-distutils electron-rebuild -f -w better-sqlite3",
+    "rebuild:native": "cross-env PYTHONPATH=./scripts/py-distutils electron-rebuild -f -w better-sqlite3",
     "postinstall": "node ./scripts/ensure-electron.mjs && npm run rebuild:native"
   },
   "dependencies": {

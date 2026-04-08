@@ -69,19 +69,19 @@ export class WebContentExtractor {
     const structured = this.extractStructuredData(dom)
     if (structured && structured.length >= this.minTextLength) {
       this.validateExtractedContent(structured, dom, url)
-      return { ...this.sanitizeExtractResult(structured), source: 'structured' }
+      return { ...this.postProcessBySite(url, this.sanitizeExtractResult(structured)), source: 'structured' }
     }
 
     const readability = this.extractWithReadability(dom)
     if (readability && readability.length >= this.minTextLength) {
       this.validateExtractedContent(readability, dom, url)
-      return { ...this.sanitizeExtractResult(readability), source: 'readability' }
+      return { ...this.postProcessBySite(url, this.sanitizeExtractResult(readability)), source: 'readability' }
     }
 
     const fallback = this.fallbackExtract(dom)
     if (fallback && fallback.length >= this.minTextLength) {
       this.validateExtractedContent(fallback, dom, url)
-      return { ...this.sanitizeExtractResult(fallback), source: 'heuristic' }
+      return { ...this.postProcessBySite(url, this.sanitizeExtractResult(fallback)), source: 'heuristic' }
     }
 
     const blockedAfter = this.detectBlockedState(dom)
@@ -112,6 +112,55 @@ export class WebContentExtractor {
       textContent,
       length: textContent.length
     }
+  }
+
+  private postProcessBySite(url: string, result: ExtractResult): ExtractResult {
+    const text = String(result.textContent || '')
+    if (!text) return result
+    if (this.isJjwxcOnebookUrl(url)) {
+      const cleaned = this.cleanJjwxcChapterText(text)
+      return { ...result, textContent: cleaned, length: cleaned.length }
+    }
+    return result
+  }
+
+  private isJjwxcOnebookUrl(url: string): boolean {
+    try {
+      const u = new URL(url)
+      return /(^|\.)jjwxc\.net$/i.test(u.hostname) && /\/onebook\.php$/i.test(u.pathname)
+    } catch {
+      return false
+    }
+  }
+
+  private cleanJjwxcChapterText(text: string): string {
+    let out = this.normalizeText(String(text || ''))
+    if (!out) return out
+
+    const removePhrases: RegExp[] = [
+      /\[图片\]/gi,
+      /插入书签/gi,
+      /作者有话说/gi,
+      /显示所有文的作话/gi,
+      /收起目录|展开目录/gi,
+      /支持手机扫描二维码阅读/gi,
+      /wap阅读地址/gi,
+      /打开晋江App扫码即刻阅读/gi,
+      /该作者现在暂无推文/gi,
+      /感谢小天使们的[^。；;\n]{0,120}霸王票[^。；;\n]{0,120}营养液/gi,
+      /Copyright By [^\n]{0,120}jjwxc\.net[^\n]{0,80}/gi
+    ]
+    for (const re of removePhrases) out = out.replace(re, ' ')
+
+    // 从章节标题开始截断，去掉前置导航/说明文案
+    const chapterStart = out.search(/第\s*[0-9零一二三四五六七八九十百千]+\s*[章回节卷]/)
+    if (chapterStart > 0 && chapterStart < 800) out = out.slice(chapterStart)
+
+    // 常见页脚起始词，后面内容整体裁掉
+    const foot = out.search(/(本站作品.*版权|晋江文学城.*版权所有|举报中心|违规举报|ICP)/i)
+    if (foot > 0) out = out.slice(0, foot)
+
+    return this.normalizeText(out)
   }
 
   private sanitizeHtml(content: string): string {
@@ -328,7 +377,7 @@ export class WebContentExtractor {
     }
 
     const pg = this.detectPaginationHint(document, baseUrl)
-    if (pg.hasPagination && pg.nextPageUrl) {
+    if (pg.hasPagination && pg.nextPageUrl && !this.shouldIgnorePaginationBySite(baseUrl)) {
       throw new ExtractError('PAGINATION_DETECTED', '检测到分页内容（如 1/2、2/2），请切换单页阅读或翻到下一分页后重试提取。')
     }
 
@@ -357,7 +406,14 @@ export class WebContentExtractor {
       'please login'
     ]
     const hasAuthWords = authKeywords.some((k) => textLower.includes(k.toLowerCase()))
-    return hasAuthForm || hasAuthWords
+    if (hasAuthForm) return true
+    if (!hasAuthWords) return false
+    const bodyText = this.normalizeText(document.body?.textContent || '')
+    const longParagraphs = Array.from(document.querySelectorAll('p'))
+      .map((p) => this.normalizeText(p.textContent || ''))
+      .filter((x) => x.length >= 120)
+    // 登录词仅在“正文明显缺失”时才判定，避免正文页页头/页脚文字误伤
+    return bodyText.length < 280 && longParagraphs.length === 0
   }
 
   private isPaywallBlockedPage(document: Document, textLower: string): boolean {
@@ -377,7 +433,14 @@ export class WebContentExtractor {
     const hasPayMask =
       document.querySelector('[class*="paywall" i], [id*="paywall" i], [class*="vip" i], [class*="subscribe" i]') !== null ||
       document.querySelector('[class*="blur" i], [style*="filter: blur" i]') !== null
-    return hasPayWords || hasPayMask
+    if (hasPayMask) return true
+    if (!hasPayWords) return false
+    const bodyText = this.normalizeText(document.body?.textContent || '')
+    const longParagraphs = Array.from(document.querySelectorAll('p'))
+      .map((p) => this.normalizeText(p.textContent || ''))
+      .filter((x) => x.length >= 120)
+    // 付费词仅在“正文明显缺失”时判定，避免评论区/页脚/站点导航中的关键词误判
+    return bodyText.length < 280 && longParagraphs.length === 0
   }
 
   private isAntiBotPage(document: Document, textLower: string): boolean {
@@ -407,8 +470,32 @@ export class WebContentExtractor {
 
   private isContentRemovedPage(document: Document, textLower: string): boolean {
     const t = `${document.title || ''} ${textLower}`.toLowerCase()
-    const keys = ['版权', '下架', '已删除', '内容不可用', '因版权原因', 'removed', 'unavailable']
-    return keys.some((k) => t.includes(k.toLowerCase()))
+    // 注意：仅凭“版权”容易误伤正文页（很多站点页脚都会出现“版权所有”）。
+    // 这里改成“强特征 + 页面正文不足”的组合，减少误判。
+    const strongKeys = [
+      '内容已删除',
+      '章节不存在',
+      '文章不存在',
+      '作品不存在',
+      '内容不可用',
+      '页面不存在',
+      '已下架',
+      '已移除',
+      'removed',
+      'unavailable',
+      'not available'
+    ]
+    if (strongKeys.some((k) => t.includes(k.toLowerCase()))) return true
+
+    const weakKeys = ['因版权原因', '版权限制', '版权问题', '涉嫌侵权']
+    const hasWeak = weakKeys.some((k) => t.includes(k.toLowerCase()))
+    if (!hasWeak) return false
+
+    const bodyText = this.normalizeText(document.body?.textContent || '')
+    const longParagraphs = Array.from(document.querySelectorAll('p'))
+      .map((p) => this.normalizeText(p.textContent || ''))
+      .filter((x) => x.length >= 120)
+    return bodyText.length < 280 && longParagraphs.length === 0
   }
 
   private isLikelyDirectoryPage(document: Document, extractedText: string): boolean {
@@ -435,6 +522,18 @@ export class WebContentExtractor {
       }
     }
     return { hasPagination, nextPageUrl }
+  }
+
+  private shouldIgnorePaginationBySite(baseUrl: string): boolean {
+    try {
+      const u = new URL(baseUrl)
+      // 晋江 onebook 章节页普遍会出现“1/2、下一页”等站点导航/评论区元素，
+      // 但正文并非分页缺失；此处禁用分页误判，优先保证正文可提取。
+      if (/(^|\.)jjwxc\.net$/i.test(u.hostname) && /\/onebook\.php$/i.test(u.pathname)) return true
+    } catch {
+      // ignore invalid url
+    }
+    return false
   }
 
   private isLikelyFontObfuscated(text: string): boolean {

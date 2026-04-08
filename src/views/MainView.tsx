@@ -110,6 +110,7 @@ type ToastState = {
   type: 'success' | 'error'
   message: string
   sticky?: boolean
+  durationMs?: number
   actionLabel?: string
   onAction?: () => void
 }
@@ -213,7 +214,7 @@ export function MainView() {
       toastTimerRef.current = window.setTimeout(() => {
         setToast((cur) => (cur?.id === t.id ? null : cur))
         toastTimerRef.current = null
-      }, 2000)
+      }, Math.max(1200, Number(t.durationMs ?? (t.type === 'error' ? 6000 : 2200))))
     }
   }
 
@@ -530,6 +531,9 @@ export function MainView() {
         setWebBookPreview(null)
         return
       }
+      if (normalized.length <= 1) {
+        setWebErr('仅识别到 1 章：请优先输入书籍简介/目录页链接再点“解析目录”（章节页通常无法拿到全目录）。')
+      }
       setWebBookPreview({
         bookTitle: String(res?.bookTitle ?? '未命名网页'),
         detailUrl: String(res?.detailUrl ?? ''),
@@ -688,7 +692,7 @@ export function MainView() {
 
   useEffect(() => {
     if (!err) return
-    showToast({ type: 'error', message: err, sticky: true })
+    showToast({ type: 'error', message: err, sticky: false, durationMs: 6500 })
   }, [err])
 
   useEffect(() => {
@@ -697,7 +701,8 @@ export function MainView() {
     showToast({
       type: 'error',
       message: webErr,
-      sticky: true,
+      sticky: false,
+      durationMs: 7000,
       actionLabel: canRetry ? '重试' : undefined,
       onAction: canRetry ? (() => void onExtractWeb()) : undefined
     })
@@ -778,6 +783,9 @@ export function MainView() {
       {toast ? (
         <div className={`toolToast ${toast.type === 'error' ? 'toolToastError' : ''}`}>
           <span>{toast.message}</span>
+          <button className="toolToastAction" onClick={() => setToast(null)} title="关闭提示" aria-label="关闭提示">
+            关闭
+          </button>
           {toast.actionLabel ? (
             <button
               className="toolToastAction"
