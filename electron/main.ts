@@ -33,6 +33,7 @@ let overlaySettingsWindow: BrowserWindow | null = null
 let overlayContentProtectionEnabled = false
 let overlayMoveTimer: NodeJS.Timeout | null = null
 let overlayMoveState: null | { winStart: { x: number; y: number }; mouseStart: { x: number; y: number } } = null
+let overlayRepaintPulseTimers: NodeJS.Timeout[] = []
 let auxSyncTimer: NodeJS.Timeout | null = null
 let auxSyncPending = false
 
@@ -219,6 +220,19 @@ function createOverlayWindow() {
       preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
       contextIsolation: true
     }
+  })
+
+  // 兜底：若渲染进程漏发 overlay:moveStop（例如 pointerup 丢失），
+  // 主进程仍应在窗口状态变化时停止跟随，避免“窗口吸附鼠标导致无法操作其他应用”。
+  overlayWindow.on('blur', () => {
+    stopOverlayMove()
+  })
+  overlayWindow.on('hide', () => {
+    stopOverlayMove()
+  })
+  overlayWindow.on('closed', () => {
+    stopOverlayMove()
+    overlayWindow = null
   })
 
   if (process.env.ELECTRON_DEV) {
@@ -1309,40 +1323,50 @@ ipcMain.handle('overlay:syncLineIndex', (_evt, args: { lineIndex: number }) => {
 
 ipcMain.handle('overlay:forceRepaint', () => {
   if (!overlayWindow || overlayWindow.isDestroyed()) return { ok: false }
-  try {
-    // macOS：透明无边框窗口的“残影”常与系统阴影层陈旧有关（Apple 侧合成问题），
-    // Electron 官方建议用 invalidateShadow 清掉陈旧阴影/残影，比反复 nudge 更接近根因。
-    // 参见 electron#47693 / PR#32452。
-    if (process.platform === 'darwin') overlayWindow.invalidateShadow()
-  } catch {
-    // ignore
-  }
-  try {
-    // Electron/Chromium 在透明窗口下偶发“合成残影”，invalidate 能强制重新取帧。
-    overlayWindow.webContents.invalidate()
-  } catch {
-    // ignore
-  }
-  try {
-    // 某些合成路径下 same-bounds 可能被优化掉：做一次“1 像素往返”强制合成刷新。
-    const b = overlayWindow.getBounds()
-    const wa = screen.getDisplayMatching(b).workArea
-    const canNudgeDown = b.y + b.height + 1 <= wa.y + wa.height
-    const y1 = canNudgeDown ? b.y + 1 : Math.max(wa.y, b.y - 1)
-    overlayWindow.setBounds({ ...b, y: y1 }, false)
-    overlayWindow.setBounds({ ...b }, false)
-  } catch {
-    // ignore
-  }
-  try {
-    // 透明窗口在 macOS 上偶发需要一次轻微 opacity nudge 才会立即清掉旧帧。
-    if (process.platform === 'darwin' && overlayWindow.isVisible()) {
-      overlayWindow.setOpacity(0.999)
-      overlayWindow.setOpacity(1)
+  for (const t of overlayRepaintPulseTimers) clearTimeout(t)
+  overlayRepaintPulseTimers = []
+
+  const pulse = () => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return
+    try {
+      // macOS：透明无边框窗口的“残影”常与系统阴影层陈旧有关（Apple 侧合成问题），
+      // Electron 官方建议用 invalidateShadow 清掉陈旧阴影/残影，比反复 nudge 更接近根因。
+      // 参见 electron#47693 / PR#32452。
+      if (process.platform === 'darwin') overlayWindow.invalidateShadow()
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
+    try {
+      // Electron/Chromium 在透明窗口下偶发“合成残影”，invalidate 能强制重新取帧。
+      overlayWindow.webContents.invalidate()
+    } catch {
+      // ignore
+    }
+    try {
+      // 某些合成路径下 same-bounds 可能被优化掉：做一次“1 像素往返”强制合成刷新。
+      const b = overlayWindow.getBounds()
+      const wa = screen.getDisplayMatching(b).workArea
+      const canNudgeDown = b.y + b.height + 1 <= wa.y + wa.height
+      const y1 = canNudgeDown ? b.y + 1 : Math.max(wa.y, b.y - 1)
+      overlayWindow.setBounds({ ...b, y: y1 }, false)
+      overlayWindow.setBounds({ ...b }, false)
+    } catch {
+      // ignore
+    }
+    try {
+      // 透明窗口在 macOS 上偶发需要一次轻微 opacity nudge 才会立即清掉旧帧。
+      if (process.platform === 'darwin' && overlayWindow.isVisible()) {
+        overlayWindow.setOpacity(0.999)
+        overlayWindow.setOpacity(1)
+      }
+    } catch {
+      // ignore
+    }
   }
+
+  // 短脉冲：当前 + 后续两帧，覆盖“翻页后 1~2 帧才更新合成层”的场景。
+  pulse()
+  overlayRepaintPulseTimers.push(setTimeout(pulse, 18), setTimeout(pulse, 54))
   return { ok: true }
 })
 

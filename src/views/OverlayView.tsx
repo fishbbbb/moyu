@@ -205,6 +205,7 @@ export function OverlayView() {
   const sessionRef = useRef<OverlaySession | null>(null)
   const lastSyncRef = useRef<{ at: number; lineIndex: number }>({ at: 0, lineIndex: -1 })
   const lastRepaintRef = useRef<{ at: number; sig: string }>({ at: 0, sig: '' })
+  const repaintBurstTimersRef = useRef<number[]>([])
   /** 阅读框拖拽缩放时：用预览行列驱动排版，松手后再 applyCfg，避免每帧写盘/重算导致卡顿 */
   const [previewRowsCols, setPreviewRowsCols] = useState<null | { rows: number; cols: number }>(null)
   /** 正文区域实际像素尺寸（随窗口变化即时更新，避免只依赖 IPC bounds 滞后导致 canvas 被拉伸压扁） */
@@ -671,7 +672,20 @@ export function OverlayView() {
     if (repaintSig === last.sig && now - last.at < minMs) return
 
     lastRepaintRef.current = { at: now, sig: repaintSig }
+    // 透明底场景下，macOS 合成层偶发会“慢 1-2 帧”刷新；
+    // 使用短脉冲重绘（当前帧 + 后续两帧）可显著降低“重影一页/两页”概率。
+    for (const t of repaintBurstTimersRef.current) window.clearTimeout(t)
+    repaintBurstTimersRef.current = []
     void window.api?.overlayForceRepaint?.()
+    if (effectiveBgOpacity <= 0.001) {
+      const t1 = window.setTimeout(() => {
+        void window.api?.overlayForceRepaint?.()
+      }, 20)
+      const t2 = window.setTimeout(() => {
+        void window.api?.overlayForceRepaint?.()
+      }, 64)
+      repaintBurstTimersRef.current.push(t1, t2)
+    }
   }, [
     session,
     lines.length,
@@ -684,6 +698,13 @@ export function OverlayView() {
     showPlaceholder,
     visibleText
   ])
+
+  useEffect(() => {
+    return () => {
+      for (const t of repaintBurstTimersRef.current) window.clearTimeout(t)
+      repaintBurstTimersRef.current = []
+    }
+  }, [])
 
   useEffect(() => {
     sessionRef.current = session
@@ -735,11 +756,22 @@ export function OverlayView() {
     downY: number
     moved: boolean
     active: boolean
+    captured: boolean
+    captureEl: HTMLElement | null
   } | null>(null)
 
   function stopWindowMoveGesture() {
     const g = moveGestureRef.current
-    if (g) g.active = false
+    if (g) {
+      g.active = false
+      if (g.captured && g.captureEl) {
+        try {
+          g.captureEl.releasePointerCapture(g.pointerId)
+        } catch {
+          // ignore
+        }
+      }
+    }
     moveGestureRef.current = null
     window.api?.overlayMoveStop?.()
   }
@@ -1014,6 +1046,20 @@ export function OverlayView() {
     }
   }, [])
 
+  useEffect(() => {
+    // 兜底：少数情况下元素级 pointerup 可能丢失（如系统级窗口切换/手势打断），
+    // 用全局监听确保 moveStop 一定会触发。
+    function onGlobalPointerUpOrCancel() {
+      stopWindowMoveGesture()
+    }
+    window.addEventListener('pointerup', onGlobalPointerUpOrCancel, { capture: true })
+    window.addEventListener('pointercancel', onGlobalPointerUpOrCancel, { capture: true })
+    return () => {
+      window.removeEventListener('pointerup', onGlobalPointerUpOrCancel, { capture: true } as any)
+      window.removeEventListener('pointercancel', onGlobalPointerUpOrCancel, { capture: true } as any)
+    }
+  }, [])
+
   function normalizeCfg(next: OverlayConfig) {
     const autoSpeed = Boolean(next.autoSpeed ?? false)
     const readMode: 'scroll' | 'page' = (next.readMode === 'page' || next.readMode === 'scroll') ? next.readMode : 'scroll'
@@ -1202,7 +1248,15 @@ export function OverlayView() {
         if (!canStartWindowMoveFromTarget(e.target)) return
         // 新一轮手势前清理上次可能遗留的状态（如漏掉 pointerup/cancel）
         stopWindowMoveGesture()
-        moveGestureRef.current = { pointerId: e.pointerId, downX: e.clientX, downY: e.clientY, moved: false, active: true }
+        moveGestureRef.current = {
+          pointerId: e.pointerId,
+          downX: e.clientX,
+          downY: e.clientY,
+          moved: false,
+          active: true,
+          captured: false,
+          captureEl: null
+        }
       }}
       onPointerMove={(e) => {
         const g = moveGestureRef.current
@@ -1216,7 +1270,10 @@ export function OverlayView() {
         // 一旦进入“拖动窗口”模式，就捕获指针，避免鼠标快速移动时丢事件；
         // 实际窗口移动在主进程完成（全局 cursor point），所以这里主要用于可靠收到 up/cancel。
         try {
-          ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+          const el = e.currentTarget as HTMLElement
+          el.setPointerCapture(e.pointerId)
+          g.captured = true
+          g.captureEl = el
         } catch {
           // ignore
         }
@@ -1230,6 +1287,13 @@ export function OverlayView() {
       onPointerCancel={(e) => {
         const g = moveGestureRef.current
         if (!g?.active || g.pointerId !== e.pointerId) return
+        stopWindowMoveGesture()
+      }}
+      onLostPointerCapture={(e) => {
+        const g = moveGestureRef.current
+        // 捕获丢失时兜底收尾，避免主进程持续 move
+        if (!g?.active) return
+        if (g.pointerId !== (e as any).pointerId) return
         stopWindowMoveGesture()
       }}
       onClick={(e) => {
