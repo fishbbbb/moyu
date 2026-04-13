@@ -68,12 +68,14 @@ declare global {
       overlayMoveStart: () => void
       overlayMoveStop: () => void
       overlayChapterStep: (delta: number) => Promise<unknown>
+      overlayClearWebNextCandidates: () => Promise<unknown>
 
       progressSet: (args: { bookId: string; itemId: string; lineIndex: number }) => Promise<unknown>
       overlayOnSession: (cb: (session: unknown) => void) => () => void
       overlayOnBounds: (cb: (bounds: unknown) => void) => () => void
       overlayOnStepDisplay: (cb: (payload: unknown) => void) => () => void
       overlayOnKMode: (cb: (payload: unknown) => void) => () => void
+      overlayOnToast: (cb: (payload: unknown) => void) => () => void
     }
   }
 }

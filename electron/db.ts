@@ -39,12 +39,23 @@ export type ProgressRow = {
   updatedAt: number
 }
 
+/** 网页下一章启发式多候选时供用户在阅读条内点选（主进程随 session 下发） */
+export type WebNextChapterCandidate = {
+  url: string
+  label: string
+  confidence: number
+  reason: string
+}
+
 export type OverlaySession = {
   bookId: string
   itemId: string
   lines: string[]
   lineIndex: number
   playing: boolean
+  webNextCandidates?: WebNextChapterCandidate[]
+  /** 当前章节来源 URL，便于与候选对比 */
+  webChapterSourceUrl?: string | null
 }
 
 let db: Database.Database | null = null
@@ -302,13 +313,20 @@ export function importWebBook(input: {
     `INSERT INTO items (id, bookId, title, sourceUrl, orderIndex, contentText, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`
   )
   const tx = d.transaction(() => {
-    // note: introText is not persisted in MVP (can be added later via settings or a new column)
-    insertBook.run(bookId, input.bookTitle?.trim() || '未命名网页', input.detailUrl, input.domain ?? null, createdAt, updatedAt)
+    const shelfTitle = input.bookTitle?.trim() || '未命名网页'
+    insertBook.run(bookId, shelfTitle, input.detailUrl, input.domain ?? null, createdAt, updatedAt)
     const chapters = (input.chapters ?? []).slice(0, 500)
+    const introRaw = String(input.introText ?? '').trim()
+    const introContent =
+      introRaw ||
+      '（本页未抓到简介正文：可回到作品详情页再执行「解析目录」；部分内容可能被站点折叠或需登录后可见。）'
+    let order = 0
+    insertItem.run(crypto.randomUUID(), bookId, '简介', input.detailUrl, order, introContent, createdAt)
+    order = 1
     chapters.forEach((c, idx) => {
       const title = String(c?.title ?? '').trim() || `未命名章节 ${idx + 1}`
       const url = String(c?.url ?? '').trim()
-      insertItem.run(crypto.randomUUID(), bookId, title, url || null, idx, '', createdAt)
+      insertItem.run(crypto.randomUUID(), bookId, title, url || null, order + idx, '', createdAt)
     })
   })
   tx()

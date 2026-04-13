@@ -2,12 +2,21 @@ import { Readability } from '@mozilla/readability'
 import { JSDOM } from 'jsdom'
 import type { WebContents } from 'electron'
 
+type ContentStrategy = 'structured' | 'readability' | 'heuristic' | 'manual'
+
+export type ExtractPipelineDebug = {
+  candidateScores: Partial<Record<Exclude<ContentStrategy, 'manual'>, number>>
+  rankedOrder: ContentStrategy[]
+  selectedStrategy: Exclude<ContentStrategy, 'manual'>
+}
+
 type ExtractResult = {
   title: string
   content: string
   textContent: string
   length: number
-  source?: 'structured' | 'readability' | 'heuristic' | 'manual'
+  source?: ContentStrategy
+  debug?: ExtractPipelineDebug
 }
 
 export type ExtractErrorCode =
@@ -34,15 +43,44 @@ export class ExtractError extends Error {
   }
 }
 
-type NavigationResult = {
-  nextUrl?: string
-  prevUrl?: string
+export type NavNextCandidate = {
+  url: string
+  label: string
+  confidence: number
+  reason: string
 }
 
-type TocResult = {
+export type NavigationResult = {
+  nextUrl?: string
+  prevUrl?: string
+  nextConfidence?: number
+  nextReason?: string
+  prevConfidence?: number
+  prevReason?: string
+  /** 下一章启发式多候选（用于 0.45~0.75 置信区间由用户确认） */
+  nextCandidates?: NavNextCandidate[]
+}
+
+export type WebNextChapterCandidate = NavNextCandidate
+
+export type ResolvedNextChapter = {
+  nextUrl?: string
+  nextConfidence: number
+  nextReason: string
+  source: 'toc' | 'nav' | 'none'
+  needsConfirmation?: boolean
+  candidates?: WebNextChapterCandidate[]
+}
+
+export type TocStatus = 'ready' | 'partial' | 'missing'
+export type TocSource = 'list' | 'table' | 'mixed' | 'none'
+
+export type TocResult = {
   isTocPage: boolean
   tocUrlCandidate?: string
   entries: Array<{ title: string; url: string }>
+  tocStatus: TocStatus
+  tocSource: TocSource
 }
 
 type ExtractorOptions = {
@@ -67,25 +105,54 @@ export class WebContentExtractor {
     if (blocked) throw blocked
 
     const structured = this.extractStructuredData(dom)
-    if (structured && structured.length >= this.minTextLength) {
-      this.validateExtractedContent(structured, dom, url)
-      return { ...this.postProcessBySite(url, this.sanitizeExtractResult(structured)), source: 'structured' }
-    }
-
     const readability = this.extractWithReadability(dom)
-    if (readability && readability.length >= this.minTextLength) {
-      this.validateExtractedContent(readability, dom, url)
-      return { ...this.postProcessBySite(url, this.sanitizeExtractResult(readability)), source: 'readability' }
+    const heuristic = this.fallbackExtract(dom)
+
+    type Strat = Exclude<ContentStrategy, 'manual'>
+    const raw: Array<{ strategy: Strat; result: ExtractResult | null }> = [
+      { strategy: 'structured', result: structured },
+      { strategy: 'readability', result: readability },
+      { strategy: 'heuristic', result: heuristic }
+    ]
+
+    const candidateScores: Partial<Record<Strat, number>> = {}
+    const ranked: Array<{ strategy: Strat; score: number; processed: ExtractResult }> = []
+
+    for (const { strategy, result } of raw) {
+      if (!result) {
+        candidateScores[strategy] = 0
+        continue
+      }
+      const sanitized = this.sanitizeExtractResult(result)
+      const processed = this.postProcessBySite(url, sanitized)
+      const score = this.scoreExtractCandidate(processed, dom)
+      candidateScores[strategy] = score
+      if (score >= 0 && processed.length >= this.minTextLength) {
+        ranked.push({ strategy, score, processed })
+      }
     }
 
-    const fallback = this.fallbackExtract(dom)
-    if (fallback && fallback.length >= this.minTextLength) {
-      this.validateExtractedContent(fallback, dom, url)
-      return { ...this.postProcessBySite(url, this.sanitizeExtractResult(fallback)), source: 'heuristic' }
+    ranked.sort((a, b) => b.score - a.score)
+    const rankedOrder = ranked.map((r) => r.strategy)
+
+    let lastErr: unknown
+    for (const item of ranked) {
+      try {
+        this.validateExtractedContent(item.processed, dom, url)
+        const dbg: ExtractPipelineDebug = {
+          candidateScores,
+          rankedOrder,
+          selectedStrategy: item.strategy
+        }
+        return { ...item.processed, source: item.strategy, debug: dbg }
+      } catch (e) {
+        lastErr = e
+      }
     }
 
     const blockedAfter = this.detectBlockedState(dom)
     if (blockedAfter) throw blockedAfter
+    if (lastErr) throw lastErr
     throw new ExtractError('NO_MAIN_CONTENT', '未识别到可导入正文，请切换章节页或使用手动框选。')
   }
 
@@ -163,6 +230,37 @@ export class WebContentExtractor {
     return this.normalizeText(out)
   }
 
+  private scoreExtractCandidate(result: ExtractResult, dom: JSDOM): number {
+    const text = this.normalizeText(result.textContent || '')
+    if (text.length < this.minTextLength) return -1
+
+    const pCount = (result.content.match(/<p[\s>]/gi) || []).length
+    const sentences = (text.match(/[。！？.!?]/g) || []).length
+    const linkNoise = this.estimateUrlNoise(text)
+    const shortLineRatio = this.estimateShortLineRatio(text)
+
+    let score = Math.log10(text.length + 10) * 100
+    score += Math.min(pCount, 50) * 2.5
+    score += Math.min(sentences, 120) * 1.2
+    score *= 1 - Math.min(0.55, linkNoise * 0.85 + shortLineRatio * 0.35)
+
+    if (this.isLikelyDirectoryPage(dom.window.document, text)) score *= 0.35
+    return score
+  }
+
+  private estimateUrlNoise(text: string): number {
+    const m = text.match(/https?:\/\/|www\./gi)
+    if (!m) return 0
+    return Math.min(1, m.length / 22)
+  }
+
+  private estimateShortLineRatio(text: string): number {
+    const lines = text.split('\n').map((s) => s.trim()).filter(Boolean)
+    if (!lines.length) return 1
+    const shortCount = lines.filter((l) => l.length < 12).length
+    return shortCount / lines.length
+  }
+
   private sanitizeHtml(content: string): string {
     if (!content) return ''
     const dom = new JSDOM(`<div id="__root__">${content}</div>`)
@@ -200,6 +298,10 @@ export class WebContentExtractor {
     const relLinks = Array.from(document.querySelectorAll('a[rel="next"], a[rel="prev"], link[rel="next"], link[rel="prev"]'))
     let nextUrl: string | undefined
     let prevUrl: string | undefined
+    let nextConfidence: number | undefined
+    let nextReason: string | undefined
+    let prevConfidence: number | undefined
+    let prevReason: string | undefined
 
     for (const link of relLinks) {
       const rel = (link.getAttribute('rel') || '').toLowerCase()
@@ -207,8 +309,16 @@ export class WebContentExtractor {
       if (!href) continue
       const abs = this.absUrl(baseUrl, href)
       if (!abs || seen.has(this.urlFingerprint(abs))) continue
-      if (rel.includes('next')) nextUrl = abs
-      if (rel.includes('prev')) prevUrl = abs
+      if (rel.includes('next')) {
+        nextUrl = abs
+        nextConfidence = 0.92
+        nextReason = 'rel_next'
+      }
+      if (rel.includes('prev')) {
+        prevUrl = abs
+        prevConfidence = 0.92
+        prevReason = 'rel_prev'
+      }
     }
 
     const anchors = Array.from(document.querySelectorAll('a[href]'))
@@ -225,34 +335,187 @@ export class WebContentExtractor {
       baseUrl,
       scored.map((s) => s.url)
     )
-    if (!nextUrl && inferred.nextUrl) nextUrl = inferred.nextUrl
-    if (!prevUrl && inferred.prevUrl) prevUrl = inferred.prevUrl
+    if (!nextUrl && inferred.nextUrl) {
+      nextUrl = inferred.nextUrl
+      nextConfidence = 0.58
+      nextReason = 'url_numeric_delta'
+    }
+    if (!prevUrl && inferred.prevUrl) {
+      prevUrl = inferred.prevUrl
+      prevConfidence = 0.58
+      prevReason = 'url_numeric_delta'
+    }
 
     for (const item of scored) {
-      if (!nextUrl && item.score >= 60 && this.isNextText(item.text)) nextUrl = item.url
-      if (!prevUrl && item.score >= 60 && this.isPrevText(item.text)) prevUrl = item.url
+      if (!nextUrl && item.score >= 60 && this.isNextText(item.text)) {
+        nextUrl = item.url
+        nextConfidence = Math.min(0.88, 0.52 + item.score / 220)
+        nextReason = 'anchor_next'
+      }
+      if (!prevUrl && item.score >= 60 && this.isPrevText(item.text)) {
+        prevUrl = item.url
+        prevConfidence = Math.min(0.88, 0.52 + item.score / 220)
+        prevReason = 'anchor_prev'
+      }
       if (nextUrl && prevUrl) break
     }
 
     if (!nextUrl) {
       const pg = this.detectPaginationHint(document, baseUrl)
-      if (pg.nextPageUrl && !seen.has(this.urlFingerprint(pg.nextPageUrl))) nextUrl = pg.nextPageUrl
+      if (pg.nextPageUrl && !seen.has(this.urlFingerprint(pg.nextPageUrl))) {
+        nextUrl = pg.nextPageUrl
+        nextConfidence = 0.42
+        nextReason = 'pagination_next'
+      }
     }
 
-    if (nextUrl && seen.has(this.urlFingerprint(nextUrl))) nextUrl = undefined
-    if (prevUrl && seen.has(this.urlFingerprint(prevUrl))) prevUrl = undefined
+    if (nextUrl && seen.has(this.urlFingerprint(nextUrl))) {
+      nextUrl = undefined
+      nextConfidence = undefined
+      nextReason = undefined
+    }
+    if (prevUrl && seen.has(this.urlFingerprint(prevUrl))) {
+      prevUrl = undefined
+      prevConfidence = undefined
+      prevReason = undefined
+    }
 
-    return { nextUrl, prevUrl }
+    const nextCandidates = this.collectNavNextCandidates(
+      baseUrl,
+      scored,
+      nextUrl,
+      nextConfidence,
+      nextReason,
+      seen
+    )
+
+    return {
+      nextUrl,
+      prevUrl,
+      nextConfidence: nextUrl ? nextConfidence : undefined,
+      nextReason: nextUrl ? nextReason : undefined,
+      prevConfidence: prevUrl ? prevConfidence : undefined,
+      prevReason: prevUrl ? prevReason : undefined,
+      nextCandidates: nextCandidates.length ? nextCandidates : undefined
+    }
+  }
+
+  private collectNavNextCandidates(
+    baseUrl: string,
+    scored: Array<{ text: string; url: string; score: number }>,
+    primaryUrl: string | undefined,
+    primaryConf: number | undefined,
+    primaryReason: string | undefined,
+    seen: Set<string>
+  ): NavNextCandidate[] {
+    const out: NavNextCandidate[] = []
+    const add = (url: string, label: string, confidence: number, reason: string) => {
+      if (!url || seen.has(this.urlFingerprint(url))) return
+      if (out.some((x) => this.urlFingerprint(x.url) === this.urlFingerprint(url))) return
+      out.push({
+        url,
+        label: label.slice(0, 56) || '下一章',
+        confidence,
+        reason
+      })
+    }
+
+    if (primaryUrl && primaryConf !== undefined) {
+      add(primaryUrl, '系统推荐', primaryConf, primaryReason || 'primary')
+    }
+
+    for (const item of scored) {
+      if (!item.url) continue
+      const looksNext =
+        this.isNextText(item.text) ||
+        (/第\s*[0-9零一二三四五六七八九十百千]+\s*[章回节卷]/i.test(item.text) && item.score >= 48) ||
+        (/next|下一篇/i.test(item.text) && item.score >= 52)
+      if (!looksNext) continue
+      const conf = Math.min(0.88, 0.48 + item.score / 200)
+      add(item.url, item.text, conf, 'anchor_guess')
+      if (out.length >= 8) break
+    }
+
+    out.sort((a, b) => b.confidence - a.confidence)
+    return out.slice(0, 6)
+  }
+
+  /** 目录邻接优先，其次导航启发式；0.45~0.75 区间不自动给出唯一 nextUrl，改为 candidates 待确认。 */
+  resolveNextChapter(pageUrl: string, tocEntries: Array<{ title: string; url: string }>, nav: NavigationResult): ResolvedNextChapter {
+    const curFp = this.urlFingerprint(pageUrl)
+    const idx = tocEntries.findIndex((e) => this.urlFingerprint(e.url) === curFp)
+    if (idx >= 0 && idx + 1 < tocEntries.length) {
+      const next = tocEntries[idx + 1]
+      return {
+        nextUrl: next.url,
+        nextConfidence: 0.92,
+        nextReason: 'toc_adjacent',
+        source: 'toc',
+        needsConfirmation: false,
+        candidates: [{ url: next.url, label: next.title, confidence: 0.92, reason: 'toc_adjacent' }]
+      }
+    }
+
+    const pool = [...(nav.nextCandidates ?? [])]
+    if (nav.nextUrl && !pool.some((c) => this.urlFingerprint(c.url) === this.urlFingerprint(nav.nextUrl!))) {
+      pool.unshift({
+        url: nav.nextUrl,
+        label: '系统推荐',
+        confidence: nav.nextConfidence ?? 0.5,
+        reason: nav.nextReason || 'nav_primary'
+      })
+    }
+    const viable = pool.filter((c) => c.confidence >= 0.45)
+    if (!viable.length) {
+      return { nextConfidence: 0, nextReason: 'none', source: 'none' }
+    }
+
+    viable.sort((a, b) => b.confidence - a.confidence)
+    const best = viable[0]
+
+    if (best.confidence >= 0.75) {
+      return {
+        nextUrl: best.url,
+        nextConfidence: best.confidence,
+        nextReason: best.reason,
+        source: 'nav',
+        needsConfirmation: false,
+        candidates: [best]
+      }
+    }
+
+    if (best.confidence >= 0.45 && best.confidence < 0.75) {
+      return {
+        needsConfirmation: true,
+        candidates: viable.slice(0, 6),
+        nextConfidence: best.confidence,
+        nextReason: 'pending_user_choice',
+        source: 'nav'
+      }
+    }
+
+    return { nextConfidence: 0, nextReason: 'none', source: 'none' }
   }
 
   detectTOC(url: string, html: string): TocResult {
     const dom = new JSDOM(html, { url })
     const { document } = dom.window
     const entries: Array<{ title: string; url: string }> = []
+    const seen = new Set<string>()
+    const pushEntry = (title: string, href: string) => {
+      const t = String(title || '').trim()
+      const abs = this.absUrl(url, href)
+      if (!t || !abs) return
+      const fp = this.urlFingerprint(abs)
+      if (seen.has(fp)) return
+      seen.add(fp)
+      entries.push({ title: t, url: abs })
+    }
 
     const titleText = `${document.title || ''} ${(document.querySelector('h1')?.textContent || '')}`.toLowerCase()
     const isTocTitle = /(目录|章节|列表|catalog|toc|chapters)/i.test(titleText)
 
+    const minListLinks = isTocTitle ? 3 : 6
     const listCandidates = Array.from(document.querySelectorAll('ul,ol'))
       .map((list) => {
         const links = Array.from(list.querySelectorAll('a[href]'))
@@ -260,26 +523,48 @@ export class WebContentExtractor {
         const avgLen = linkTexts.length ? linkTexts.reduce((s, t) => s + t.length, 0) / linkTexts.length : 0
         return { list, links, linkTexts, avgLen }
       })
-      .filter((c) => c.links.length >= 6 && c.avgLen <= 40)
+      .filter((c) => c.links.length >= minListLinks && c.avgLen <= 45)
 
     const bestList = listCandidates.sort((a, b) => b.links.length - a.links.length)[0]
+    let tocSource: TocSource = 'none'
     if (bestList) {
+      tocSource = 'list'
       for (const link of bestList.links) {
         const t = (link.textContent || '').trim()
         const href = link.getAttribute('href') || ''
-        if (!t || !href) continue
-        entries.push({ title: t, url: this.absUrl(url, href) })
+        pushEntry(t, href)
       }
     }
 
-    const tocUrlCandidate = entries.length
-      ? undefined
-      : this.findTocLink(document, url)
+    if (entries.length < 4) {
+      const tableAnchors = Array.from(document.querySelectorAll('table a[href]'))
+        .map((a) => ({
+          t: (a.textContent || '').trim(),
+          href: a.getAttribute('href') || ''
+        }))
+        .filter((x) => x.href && x.t && x.t.length <= 90)
+
+      if (tableAnchors.length >= 4) {
+        const before = entries.length
+        for (const x of tableAnchors) pushEntry(x.t, x.href)
+        if (entries.length > before) {
+          if (tocSource === 'none') tocSource = 'table'
+          else if (tocSource === 'list') tocSource = 'mixed'
+        }
+      }
+    }
+
+    const tocUrlCandidate = entries.length ? undefined : this.findTocLink(document, url)
+
+    const tocStatus: TocStatus =
+      entries.length >= 2 ? 'ready' : entries.length === 1 ? 'partial' : 'missing'
 
     return {
-      isTocPage: Boolean(isTocTitle || entries.length >= 6),
+      isTocPage: Boolean(isTocTitle || entries.length >= minListLinks),
       tocUrlCandidate,
-      entries
+      entries,
+      tocStatus,
+      tocSource
     }
   }
 

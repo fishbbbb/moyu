@@ -21,9 +21,11 @@ import {
   renameGroup,
   setOverlaySession,
   updateItemContent,
-  upsertProgress
+  upsertProgress,
+  type OverlaySession
 } from './db'
 import { BrowserBridge, ExtractError, WebContentExtractor } from './webContentExtractor'
+import { sanitizeWebBookShelfTitle } from './webBookDisplay'
 
 let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
@@ -113,13 +115,15 @@ async function runStructuredExtraction(wc: Electron.WebContents, fallbackUrl?: s
   }
   const nav = extractor.detectNavigation(page?.html || '', pageUrl)
   const toc = extractor.detectTOC(pageUrl, page?.html || '')
+  const nextResolved = extractor.resolveNextChapter(pageUrl, toc.entries, nav)
 
   return {
     pageUrl,
     pageTitle: String(page?.title || ''),
     extracted,
     nav,
-    toc
+    toc,
+    nextResolved
   }
 }
 
@@ -403,6 +407,12 @@ function broadcastOverlayKMode(enabled: boolean) {
   overlaySettingsWindow?.webContents.send('overlay:kMode', { enabled: Boolean(enabled) })
 }
 
+function broadcastOverlayToast(payload: { type: 'error' | 'info'; message: string; detail?: string }) {
+  overlayWindow?.webContents.send('overlay:toast', payload)
+  overlayToolbarWindow?.webContents.send('overlay:toast', payload)
+  overlaySettingsWindow?.webContents.send('overlay:toast', payload)
+}
+
 function registerShortcuts() {
   globalShortcut.register('CommandOrControl+Shift+X', () => {
     if (!overlayWindow) return
@@ -549,7 +559,8 @@ ipcMain.handle(
   'library:importWebItem',
   (_evt, args: { title: string; sourceUrl: string; contentText: string; domain: string | null; bookId?: string | null }) => {
     if (!args?.contentText || !String(args.contentText).trim()) throw new Error('EMPTY_CONTENT')
-    return importWebItem(args)
+    const title = sanitizeWebBookShelfTitle(String(args.title ?? ''))
+    return importWebItem({ ...args, title })
   }
 )
 
@@ -561,7 +572,7 @@ ipcMain.handle(
   ) => {
     const detailUrl = String(args?.detailUrl ?? '').trim()
     if (!/^https?:\/\//i.test(detailUrl)) throw new Error('INVALID_URL')
-    const bookTitle = String(args?.bookTitle ?? '').trim() || '未命名网页'
+    const bookTitle = sanitizeWebBookShelfTitle(String(args?.bookTitle ?? ''))
     const chapters = Array.isArray(args?.chapters) ? args.chapters : []
     if (chapters.length === 0) throw new Error('EMPTY_TOC')
     return importWebBook({ bookTitle, detailUrl, domain: args?.domain ?? null, introText: args?.introText ?? null, chapters })
@@ -640,12 +651,13 @@ ipcMain.handle('web:extract', async () => {
   const preview = previewLines.slice(0, 12).join('\n')
 
   return {
-    title,
+    title: sanitizeWebBookShelfTitle(title),
     url,
     domain,
     contentText,
     preview,
-    extractor: extracted.source || 'readability'
+    extractor: extracted.source || 'readability',
+    extractDebug: extracted.debug ?? null
   }
 })
 
@@ -669,6 +681,54 @@ async function loadUrlInWebWindow(url: string) {
   return w
 }
 
+type EnsureWebItemResult = {
+  contentText: string | null
+  nextResolved: import('./webContentExtractor').ResolvedNextChapter | null
+  fetchError?: string
+}
+
+/** 网页导入书籍：章节正文为空时按 sourceUrl 拉取并写库；同时返回下一章解析结果供阅读条展示候选。 */
+async function ensureWebItemContentFromSource(itemId: string): Promise<EnsureWebItemResult> {
+  try {
+    const { item } = getItemContent(itemId)
+    const existing = String(item.contentText ?? '').trim()
+    if (existing.length > 0) {
+      return { contentText: existing, nextResolved: null }
+    }
+    const url = String(item.sourceUrl ?? '').trim()
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return { contentText: null, nextResolved: null, fetchError: 'NO_SOURCE_URL' }
+    }
+    const w = await loadUrlInWebWindow(url)
+    w.show()
+    const wc = w.webContents
+    const { extracted, nextResolved } = await runStructuredExtraction(wc, url)
+    const contentText = String(extracted.textContent ?? '').trim()
+    if (!contentText) {
+      return { contentText: null, nextResolved: nextResolved ?? null, fetchError: 'EMPTY_CONTENT' }
+    }
+    updateItemContent({ itemId, contentText })
+    return { contentText, nextResolved: nextResolved ?? null }
+  } catch (e) {
+    return {
+      contentText: null,
+      nextResolved: null,
+      fetchError: e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+
+function mergeOverlayWebNextFromEnsure(
+  ensured: EnsureWebItemResult,
+  item: { sourceUrl: string | null }
+): Pick<OverlaySession, 'webNextCandidates' | 'webChapterSourceUrl'> {
+  const cands = ensured.nextResolved?.needsConfirmation ? ensured.nextResolved.candidates : undefined
+  return {
+    webNextCandidates: cands?.length ? cands : undefined,
+    webChapterSourceUrl: item.sourceUrl ?? undefined
+  }
+}
+
 ipcMain.handle('web:extractAtUrl', async (_evt, args: { url: string }) => {
   const url = String(args?.url ?? '').trim()
   if (!/^https?:\/\//i.test(url)) throw webExtractErr('INVALID_URL', '无效 URL。')
@@ -688,7 +748,15 @@ ipcMain.handle('web:extractAtUrl', async (_evt, args: { url: string }) => {
   if (!contentText) throw webExtractErr('NO_MAIN_CONTENT', '未识别到正文，请切换章节页或使用手动框选。')
   const previewLines = contentText.split('\\n').map((s: string) => s.trim()).filter(Boolean)
   const preview = previewLines.slice(0, 12).join('\\n')
-  return { title, url: pageUrl, domain, contentText, preview, extractor: extracted.source || 'readability' }
+  return {
+    title: sanitizeWebBookShelfTitle(title),
+    url: pageUrl,
+    domain,
+    contentText,
+    preview,
+    extractor: extracted.source || 'readability',
+    extractDebug: extracted.debug ?? null
+  }
 })
 
 
@@ -699,13 +767,15 @@ ipcMain.handle('web:extractStructuredAtUrl', async (_evt, args: { url: string })
   const w = await loadUrlInWebWindow(url)
   w.show()
   const wc = w.webContents
-  const { pageUrl, pageTitle, extracted, nav, toc } = await runStructuredExtraction(wc, url)
+  const { pageUrl, pageTitle, extracted, nav, toc, nextResolved } = await runStructuredExtraction(wc, url)
+
+  const displayTitle = sanitizeWebBookShelfTitle(String(extracted.title || pageTitle || '未命名网页'))
 
   return {
     url: pageUrl || url,
-    title: extracted.title || pageTitle || '未命名网页',
+    title: displayTitle,
     content: {
-      title: extracted.title || pageTitle || '未命名网页',
+      title: displayTitle,
       content: extracted.content,
       textContent: extracted.textContent,
       excerpt: extracted.textContent.slice(0, 180),
@@ -714,11 +784,34 @@ ipcMain.handle('web:extractStructuredAtUrl', async (_evt, args: { url: string })
       wordCount: extracted.length
     },
     chapters: toc.entries || [],
-    nextChapterUrl: nav.nextUrl,
+    nextChapterUrl: nextResolved.needsConfirmation ? undefined : (nextResolved.nextUrl ?? nav.nextUrl),
+    nextChapterNeedsConfirmation: Boolean(nextResolved.needsConfirmation),
+    nextChapterCandidates: nextResolved.candidates ?? [],
+    nextChapterConfidence: nextResolved.nextConfidence,
+    nextChapterReason: nextResolved.nextReason,
+    nextChapterSource: nextResolved.source,
     prevChapterUrl: nav.prevUrl,
     tocUrlCandidate: toc.tocUrlCandidate,
     isTocPage: toc.isTocPage,
-    extractor: extracted.source || 'readability'
+    tocStatus: toc.tocStatus,
+    tocSource: toc.tocSource,
+    extractor: extracted.source || 'readability',
+    extractDebug: {
+      content: extracted.debug ?? null,
+      toc: {
+        status: toc.tocStatus,
+        source: toc.tocSource,
+        entryCount: toc.entries.length,
+        isTocPage: toc.isTocPage
+      },
+      navigation: {
+        nextConfidence: nav.nextConfidence,
+        nextReason: nav.nextReason,
+        prevConfidence: nav.prevConfidence,
+        prevReason: nav.prevReason
+      },
+      next: nextResolved
+    }
   }
 })
 
@@ -941,7 +1034,7 @@ ipcMain.handle(
     }
 
     return {
-      title: extracted.title || title || '未命名网页',
+      title: sanitizeWebBookShelfTitle(String(extracted.title || title || '未命名网页')),
       url: url || wc.getURL(),
       domain,
       contentText: extracted.textContent,
@@ -969,13 +1062,30 @@ ipcMain.handle('web:extractBookDetail', async () => {
       const host = u0?.hostname || '';
 
       const pickBookTitle = () => {
+        const tryClean = (raw) => {
+          const s = String(raw || '').replace(/\\s+/g, ' ').trim();
+          if (!s) return '';
+          const m = s.match(/《[^》]+》/);
+          if (m) return m[0].trim();
+          let x = s.replace(/【[^】]*】/g, ' ').replace(/\\s+/g, ' ').trim();
+          const head = x.split('_')[0]?.trim();
+          if (head && head.length >= 2 && head.length < 96) x = head;
+          x = x.replace(/\\s*[-|｜]\\s*.{0,48}文学城.*$/i, '').trim();
+          return x || s;
+        };
         const h1 = (document.querySelector('h1')?.textContent || '').trim();
-        if (h1) return h1;
+        if (h1) {
+          const c = tryClean(h1);
+          if (c) return c;
+        }
         const og = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
-        if (og.trim()) return og.trim();
+        if (og.trim()) {
+          const c = tryClean(og.trim());
+          if (c) return c;
+        }
         const t = (document.title || '').trim();
         if (!t) return '';
-        return t.replace(/_.*$/, '').replace(/\\|.*$/, '').trim();
+        return tryClean(t) || t.replace(/_.*$/, '').replace(/\\|.*$/, '').trim();
       };
 
       const pickIntro = () => {
@@ -1055,30 +1165,51 @@ ipcMain.handle('web:extractBookDetail', async () => {
               const href = a.getAttribute('href') || '';
               const url = abs(href);
               const t = (a.textContent || '').trim();
-              return { t, u: url };
-            })
-          const aList = allAnchors.filter((x) => {
-              if (!x.u || !x.t || x.t.length > 80) return false;
-              const uu = parseUrl(x.u);
-              if (!uu) return false;
-              // accept both http/https as long as host/path matches
-              return uu.hostname === baseHost && uu.pathname === basePath;
+              return { t, u: url, href };
             });
+
+          const getParamCI = (uu, name) => {
+            const needle = String(name || '').toLowerCase();
+            for (const [k, v] of uu.searchParams.entries()) {
+              if (String(k || '').toLowerCase() === needle) return String(v || '');
+            }
+            return '';
+          };
+
+          const aList = allAnchors.filter((x) => {
+            if (!x.u) return false;
+            const uu = parseUrl(x.u);
+            if (!uu) return false;
+            // accept both http/https as long as host/path points to onebook
+            return uu.hostname === baseHost && /\\/onebook\\.php$/i.test(uu.pathname || '');
+          });
 
           const chaptersRaw = aList
             .map((x) => {
               const uu = parseUrl(x.u);
               if (!uu) return null;
-              if (!/\\/onebook\\.php$/i.test(uu.pathname)) return null;
-              const nid2 = uu.searchParams.get('novelid') || '';
-              const cid = uu.searchParams.get('chapterid') || '';
-              if (!nid2 || nid2 !== nid) return null;
+
+              const nid2 = getParamCI(uu, 'novelid');
+              let cid = getParamCI(uu, 'chapterid');
+
+              // 兜底：参数异常时直接从 URL 正则提取 chapterid
+              if (!cid) {
+                const m = /(?:[?&])chapterid=(\d+)/i.exec(x.u) || /(?:[?&])chapterid=(\d+)/i.exec(x.href || '');
+                if (m?.[1]) cid = m[1];
+              }
+
+              if (!nid2 || String(nid2) !== String(nid)) return null;
               if (!cid) return null;
+
               const nCid = Number(cid);
               if (!Number.isFinite(nCid) || nCid <= 0) return null;
+
+              const t = String(x.t || '').trim();
+              const title = t && t.length <= 120 ? t : ('第' + String(nCid) + '章');
+
               return {
-                t: x.t,
-                u: baseOrigin + uu.pathname + '?novelid=' + encodeURIComponent(nid) + '&chapterid=' + encodeURIComponent(String(nCid)),
+                t: title,
+                u: baseOrigin + basePath + '?novelid=' + encodeURIComponent(nid) + '&chapterid=' + encodeURIComponent(String(nCid)),
                 cid: nCid
               };
             })
@@ -1099,9 +1230,10 @@ ipcMain.handle('web:extractBookDetail', async () => {
             baseHost,
             basePath,
             anchorsTotal: allAnchors.length,
-            anchorsMatchedHostPath: aList.length,
+            anchorsMatchedOnebookPath: aList.length,
+            chapterCandidates: chaptersRaw.length,
             sampleChapterLinks: allAnchors
-              .filter((x) => /chapterid=\\d+/i.test(x.u))
+              .filter((x) => /chapterid=\\d+/i.test(x.u) || /chapterid=\\d+/i.test(x.href || ''))
               .slice(0, 8)
               .map((x) => ({ t: x.t, u: x.u }))
           };
@@ -1184,17 +1316,79 @@ ipcMain.handle('web:extractBookDetail', async () => {
     })()`)) as any
   }
 
-  // Try current page; if it's a chapter page without toc, auto-jump to toc and retry once.
+  // Try current page; if it's a chapter page without toc / 仅误识别到 1 章，则跟目录候选链再试一次。
   let res: any = await extractOnce()
-  const tocUrlCandidate = String(res?.tocUrlCandidate ?? '').trim()
-  if ((!Array.isArray(res?.chapters) || res.chapters.length === 0) && tocUrlCandidate && /^https?:\/\//i.test(tocUrlCandidate)) {
+  const normalizeHref = (u: string) => {
+    try {
+      const x = new URL(u)
+      x.hash = ''
+      return x.href
+    } catch {
+      return String(u || '').trim()
+    }
+  }
+  let tocUrlCandidate = String(res?.tocUrlCandidate ?? '').trim()
+  const ch0 = Array.isArray(res?.chapters) ? res.chapters : []
+  const currentHref = normalizeHref(wc.getURL())
+  const tocHref = tocUrlCandidate ? normalizeHref(tocUrlCandidate) : ''
+  const shouldFollowToc =
+    Boolean(tocUrlCandidate && /^https?:\/\//i.test(tocUrlCandidate)) &&
+    tocHref !== currentHref &&
+    (ch0.length === 0 || ch0.length === 1)
+
+  if (shouldFollowToc) {
     await loadUrlInWebWindow(tocUrlCandidate)
     await waitWebContentsReady(wc)
     res = await extractOnce()
   }
 
+  let chaptersProbe = Array.isArray(res?.chapters) ? res.chapters : []
+  if (chaptersProbe.length <= 1) {
+    const backUrls = (await wc.executeJavaScript(
+      `(() => {
+        const abs = (href) => { try { return new URL(href, location.href).toString(); } catch { return ''; } };
+        let origin = '';
+        try { origin = new URL(location.href).origin; } catch { return []; }
+        const keyRe = /(目录|书页|作品|详情|简介|返回|全部章节|章节目录)/i;
+        const out = [];
+        const seen = new Set();
+        for (const a of document.querySelectorAll('a[href]')) {
+          const t = (a.textContent || '').trim();
+          const u = abs(a.getAttribute('href') || '');
+          if (!u || !t || t.length > 72) continue;
+          try {
+            if (new URL(u).origin !== origin) continue;
+          } catch {
+            continue;
+          }
+          if (seen.has(u)) continue;
+          if (keyRe.test(t) || /\\/(novel|book|ebook|work|works|shu)\\b/i.test(u) || /novelid|bookid|aid=/i.test(u)) {
+            seen.add(u);
+            out.push(u);
+          }
+        }
+        return out.slice(0, 10);
+      })()`,
+      true
+    )) as string[]
+
+    let hops = 0
+    for (const jump of backUrls || []) {
+      if (hops >= 4) break
+      const j = String(jump || '').trim()
+      if (!/^https?:\/\//i.test(j)) continue
+      if (normalizeHref(j) === normalizeHref(wc.getURL())) continue
+      hops += 1
+      await loadUrlInWebWindow(j)
+      await waitWebContentsReady(wc)
+      res = await extractOnce()
+      chaptersProbe = Array.isArray(res?.chapters) ? res.chapters : []
+      if (chaptersProbe.length >= 2) break
+    }
+  }
+
   const detailUrl = String(res?.detailUrl ?? '')
-  const bookTitle = String(res?.bookTitle ?? '').trim()
+  const bookTitle = sanitizeWebBookShelfTitle(String(res?.bookTitle ?? ''))
   const introText = String(res?.introText ?? '').trim()
   const chapters = Array.isArray(res?.chapters) ? res.chapters : []
   let domain: string | null = null
@@ -1209,7 +1403,8 @@ ipcMain.handle('web:extractBookDetail', async () => {
     const msg = dbg ? `未识别到目录链接。debug=${dbg}` : '未识别到目录链接（可能不是详情页或站点结构特殊）。'
     throw webExtractErr('EMPTY_TOC', msg.slice(0, 1200))
   }
-  return { detailUrl, domain, bookTitle, introText, chapters }
+  const tocStatus = chapters.length >= 2 ? 'ready' : chapters.length === 1 ? 'partial' : 'missing'
+  return { detailUrl, domain, bookTitle, introText, chapters, tocStatus }
 })
 
 ipcMain.handle('web:close', () => {
@@ -1237,7 +1432,16 @@ ipcMain.handle(
   }
 )
 
-ipcMain.handle('overlay:resume', (_evt, args: { bookId: string; cols?: number }) => {
+ipcMain.handle('overlay:clearWebNextCandidates', () => {
+  const cur = getOverlaySession()
+  if (!cur) return { ok: false }
+  const next: OverlaySession = { ...cur, webNextCandidates: undefined }
+  setOverlaySession(next)
+  broadcastOverlaySession(next)
+  return { ok: true }
+})
+
+ipcMain.handle('overlay:resume', async (_evt, args: { bookId: string; cols?: number }) => {
   let items: ReturnType<typeof getBook>['items']
   let progress: ReturnType<typeof getBook>['progress']
   try {
@@ -1250,10 +1454,33 @@ ipcMain.handle('overlay:resume', (_evt, args: { bookId: string; cols?: number })
   }
   const nextItemId = progress?.itemId ?? items[0]?.id
   if (!nextItemId) throw new Error('NO_ITEM')
+  const ensured = await ensureWebItemContentFromSource(nextItemId)
   const { item } = getItemContent(nextItemId)
-  const lines = toRawLines(item.contentText)
+  let lines = toRawLines(item.contentText)
+  if (!lines.some((l) => l.trim())) {
+    lines = [
+      '（本章正文未能自动获取：可能需登录/付费，或站点反爬。请回到主窗口在「网页导入」中打开该章节页处理。）'
+    ]
+    broadcastOverlayToast({
+      type: 'error',
+      message: '本章提取失败',
+      detail: ensured.fetchError
+    })
+  } else if (ensured.nextResolved?.needsConfirmation && ensured.nextResolved.candidates?.length) {
+    broadcastOverlayToast({
+      type: 'info',
+      message: '下一章链接不够确定，可在下方候选中打开网页确认'
+    })
+  }
   const lineIndex = Math.max(0, progress?.lineIndex ?? 0)
-  const session = { bookId: args.bookId, itemId: nextItemId, lines, lineIndex, playing: false }
+  const session: OverlaySession = {
+    bookId: args.bookId,
+    itemId: nextItemId,
+    lines,
+    lineIndex,
+    playing: false,
+    ...mergeOverlayWebNextFromEnsure(ensured, item)
+  }
   setOverlaySession(session)
   overlayWindow?.show()
   broadcastOverlaySession(session)
@@ -1262,7 +1489,73 @@ ipcMain.handle('overlay:resume', (_evt, args: { bookId: string; cols?: number })
   return session
 })
 
-ipcMain.handle('overlay:chapterStep', (_evt, args: { delta: number }) => {
+function isLikelyFrontMatterTitle(title: string) {
+  const t = String(title ?? '').trim().toLowerCase()
+  if (!t) return false
+  return /^(cover|table\s+of\s+contents|toc|目录|封面|扉页|版权|contents?)$/i.test(t)
+}
+
+function pickChapterOrdinalFromText(text: string): number | null {
+  const s = String(text ?? '')
+  const mEn = s.match(/chapter\s*([0-9]{1,5})/i)
+  if (mEn) return Number(mEn[1])
+  const mNum = s.match(/(?:^|\s)([0-9]{1,5})(?:\s*[.、:：\-]|\s|$)/)
+  if (mNum) return Number(mNum[1])
+  return null
+}
+
+function pickEpubChapterKey(item: { title: string; contentText: string }, idx: number) {
+  const title = String(item?.title ?? '').trim()
+  if (isLikelyFrontMatterTitle(title)) return `front:${title.toLowerCase()}`
+  const ordFromTitle = pickChapterOrdinalFromText(title)
+  if (ordFromTitle != null) return `ord:${ordFromTitle}`
+
+  const firstLine = String(item?.contentText ?? '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((x) => x.trim())
+    .find(Boolean)
+  const ordFromBody = pickChapterOrdinalFromText(firstLine ?? '')
+  if (ordFromBody != null) return `ord:${ordFromBody}`
+
+  return `idx:${idx}`
+}
+
+function resolveSteppedItemIndexForEpub(
+  items: Array<{ title: string; contentText: string }>,
+  curIdx: number,
+  delta: number
+) {
+  const d = Math.trunc(Number(delta ?? 0))
+  if (!Number.isFinite(d) || d === 0) return curIdx
+
+  const keys = items.map((it, i) => pickEpubChapterKey(it, i))
+  const groups: Array<{ key: string; indices: number[]; preferredIdx: number }> = []
+  const itemToGroup: number[] = []
+
+  for (let i = 0; i < items.length; i++) {
+    const key = keys[i]
+    const prev = groups[groups.length - 1]
+    if (!prev || prev.key !== key) {
+      groups.push({ key, indices: [i], preferredIdx: i })
+      itemToGroup[i] = groups.length - 1
+    } else {
+      prev.indices.push(i)
+      itemToGroup[i] = groups.length - 1
+      const curBestLen = String(items[prev.preferredIdx]?.contentText ?? '').trim().length
+      const nowLen = String(items[i]?.contentText ?? '').trim().length
+      if (nowLen > curBestLen) prev.preferredIdx = i
+    }
+  }
+
+  const curGroup = itemToGroup[curIdx] ?? 0
+  const nextGroup = Math.max(0, Math.min(groups.length - 1, curGroup + d))
+  const g = groups[nextGroup]
+  if (!g) return curIdx
+  return g.preferredIdx
+}
+
+ipcMain.handle('overlay:chapterStep', async (_evt, args: { delta: number }) => {
   const cur = getOverlaySession()
   if (!cur) return { ok: false }
   let items: ReturnType<typeof getBook>['items']
@@ -1277,16 +1570,46 @@ ipcMain.handle('overlay:chapterStep', (_evt, args: { delta: number }) => {
   const idx = items.findIndex((x) => x.id === cur.itemId)
   if (idx < 0) return { ok: false }
   const d = Math.trunc(Number(args.delta ?? 0))
-  const nextIdx = Math.max(0, Math.min(items.length - 1, idx + d))
+  const fromBook = getBook(cur.bookId)
+  const useEpubSmartStep =
+    fromBook.book.sourceType === 'file' && /\.epub$/i.test(String(fromBook.book.sourceRef ?? '').trim())
+
+  const nextIdx = useEpubSmartStep
+    ? resolveSteppedItemIndexForEpub(items, idx, d)
+    : Math.max(0, Math.min(items.length - 1, idx + d))
+
   if (nextIdx === idx) return { ok: true, unchanged: true }
   const nextItemId = items[nextIdx]?.id
   if (!nextItemId) return { ok: false }
+  const ensured = await ensureWebItemContentFromSource(nextItemId)
   const { item } = getItemContent(nextItemId)
-  const lines = toRawLines(item.contentText)
+  let lines = toRawLines(item.contentText)
+  if (!lines.some((l) => l.trim())) {
+    lines = [
+      '（本章正文未能自动获取：可能需登录/付费，或站点反爬。请回到主窗口在「网页导入」中打开该章节页处理。）'
+    ]
+    broadcastOverlayToast({
+      type: 'error',
+      message: '本章提取失败',
+      detail: ensured.fetchError
+    })
+  } else if (ensured.nextResolved?.needsConfirmation && ensured.nextResolved.candidates?.length) {
+    broadcastOverlayToast({
+      type: 'info',
+      message: '下一章链接不够确定，可在下方候选中打开网页确认'
+    })
+  }
   // 章节切换时保留“当前是否自动阅读”的播放状态：
   // - 用户手动翻章时通常为暂停，结果仍保持暂停
   // - 自动阅读续章时需要继续播放
-  const next = { ...cur, itemId: nextItemId, lines, lineIndex: 0, playing: Boolean(cur.playing) }
+  const next: OverlaySession = {
+    ...cur,
+    itemId: nextItemId,
+    lines,
+    lineIndex: 0,
+    playing: Boolean(cur.playing),
+    ...mergeOverlayWebNextFromEnsure(ensured, item)
+  }
   setOverlaySession(next)
   overlayWindow?.show()
   broadcastOverlaySession(next)
@@ -1523,19 +1846,36 @@ ipcMain.on('overlay:moveStop', () => {
   stopOverlayMove()
 })
 
-ipcMain.handle('overlay:restoreLast', (_evt, args: { cols?: number }) => {
+ipcMain.handle('overlay:restoreLast', async (_evt, args: { cols?: number }) => {
   const last = getLastProgress()
   if (!last) return null
   try {
+    const ensured = await ensureWebItemContentFromSource(last.itemId)
     const { item } = getItemContent(last.itemId)
-    const lines = toRawLines(item.contentText)
+    let lines = toRawLines(item.contentText)
+    if (!lines.some((l) => l.trim())) {
+      lines = [
+        '（本章正文未能自动获取：可能需登录/付费，或站点反爬。请回到主窗口在「网页导入」中打开该章节页处理。）'
+      ]
+      broadcastOverlayToast({
+        type: 'error',
+        message: '本章提取失败',
+        detail: ensured.fetchError
+      })
+    } else if (ensured.nextResolved?.needsConfirmation && ensured.nextResolved.candidates?.length) {
+      broadcastOverlayToast({
+        type: 'info',
+        message: '下一章链接不够确定，可在下方候选中打开网页确认'
+      })
+    }
     const lineIndex = Math.min(last.lineIndex, Math.max(0, lines.length - 1))
-    const session = {
+    const session: OverlaySession = {
       bookId: last.bookId,
       itemId: last.itemId,
       lines,
       lineIndex,
-      playing: false
+      playing: false,
+      ...mergeOverlayWebNextFromEnsure(ensured, item)
     }
     setOverlaySession(session)
     overlayWindow?.show()

@@ -93,9 +93,26 @@ export function WebImport(props: {
                   </button>
                 </div>
                 <div className="uiHint">
-                  目录 {props.webBookPreview.chapters.length} 章
+                  将写入书架：第 1 条为「简介」，其后 {props.webBookPreview.chapters.length} 个章节链接；来源见书架副标题域名。
                 </div>
-                <div className="uiPreviewMini">{props.webBookPreview.introText || '（暂无简介）'}</div>
+                <div
+                  className="uiPreviewToc"
+                  style={{ maxHeight: 220, overflow: 'auto', marginTop: 8, fontSize: 13, lineHeight: 1.45 }}
+                >
+                  <div className="uiPreviewTocRow" title={props.webBookPreview.introText || ''}>
+                    <strong>1.</strong> 简介
+                    <span style={{ color: 'var(--muted, #666)', marginLeft: 6 }}>
+                      {props.webBookPreview.introText
+                        ? `${props.webBookPreview.introText.slice(0, 72)}${props.webBookPreview.introText.length > 72 ? '…' : ''}`
+                        : '（暂无简介摘要，导入后首条仍占位）'}
+                    </span>
+                  </div>
+                  {props.webBookPreview.chapters.map((c, i) => (
+                    <div key={`${c.url}-${i}`} className="uiPreviewTocRow" title={c.url} style={{ marginTop: 4 }}>
+                      <strong>{i + 2}.</strong> {c.title || `章节 ${i + 1}`}
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>

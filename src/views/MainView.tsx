@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { splitTextToChapters } from '../utils/chapterSplit'
+import { importLocalBookFile } from '../utils/ebookImport'
 
 type OverlayConfig = {
   bgOpacity: number
@@ -183,6 +183,7 @@ export function MainView() {
     domain: string | null
     contentText: string
     preview: string
+    extractDebug?: unknown
   } | null>(null)
   const [webBookPreview, setWebBookPreview] = useState<{
     bookTitle: string
@@ -190,8 +191,16 @@ export function MainView() {
     domain: string | null
     introText: string
     chapters: Array<{ title: string; url: string }>
+    tocStatus?: 'ready' | 'partial' | 'missing'
   } | null>(null)
   const [webBookId, setWebBookId] = useState<string | null>(null)
+  /** 结构化抽取后「下一章」处于 0.45~0.75 置信区间：主窗口展示候选供用户打开核验 */
+  const [webPendingNextChapter, setWebPendingNextChapter] = useState<null | {
+    itemId: string
+    bookId: string | null
+    chapterTitle: string
+    candidates: Array<{ url: string; label: string; confidence: number; reason: string }>
+  }>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastTimerRef = useRef<number | null>(null)
   const chapterListRef = useRef<HTMLDivElement | null>(null)
@@ -243,10 +252,6 @@ export function MainView() {
     return out
   }, [groups])
 
-  function splitTxtToItems(t: string) {
-    return splitTextToChapters(t)
-  }
-
   async function refreshLibrary(selectBookId?: string) {
     setErr(null)
     setNotice(null)
@@ -265,7 +270,11 @@ export function MainView() {
     setActiveBookId(chosen)
     if (chosen) await loadBook(chosen)
     else setActive(null)
-    if (selectBookId) setWebBookId(selectBookId)
+    if (selectBookId) {
+      const picked = nextBooks.find((b) => b.id === selectBookId)
+      // 仅允许把网页章节“追加保存”到网页书（sourceType='url'）里，避免误挂到本地书导致 BOOK_TYPE_MISMATCH。
+      setWebBookId(picked?.sourceType === 'url' ? selectBookId : null)
+    }
   }
 
   async function loadBook(bookId: string) {
@@ -283,6 +292,7 @@ export function MainView() {
   }
 
   async function startReading(bookId: string, itemId: string, lineIndex: number) {
+    setWebPendingNextChapter(null)
     const it = active?.items.find((x) => x.id === itemId)
     if (!it) return
     const contentText = String(it.contentText ?? '').trim()
@@ -307,30 +317,36 @@ export function MainView() {
   async function onImportTxt(file: File) {
     setErr(null)
     setNotice(null)
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const t = String(reader.result ?? '')
-      if (!t.trim()) {
-        setErr('导入失败：文件内容为空。')
-        if (importTxtInputRef.current) importTxtInputRef.current.value = ''
+    try {
+      const payload = await importLocalBookFile(file)
+      if (!payload.items.length) {
+        setErr('导入失败：未提取到可读内容。')
         return
       }
-      const items = splitTxtToItems(t)
-      if (items.length === 1 && items[0]?.title === '全文') {
+      if (payload.format === 'txt' && payload.items.length === 1 && payload.items[0]?.title === '全文') {
         setNotice('未识别到章节目录，已按“全文”导入（你仍可正常阅读）。')
       }
-      const title = file.name.replace(/\.txt$/i, '') || '未命名'
-      try {
-        const res = (await window.api?.libraryImportTxt?.({ title, sourceRef: file.name, items })) as any
-        await refreshLibrary(res?.bookId)
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : String(e))
-      } finally {
-        // 关键：清空 file input，保证“再次选择同一文件”也会触发 onChange 并能重复导入
-        if (importTxtInputRef.current) importTxtInputRef.current.value = ''
+      if (payload.format === 'epub') {
+        setNotice(`EPUB 导入完成：共 ${payload.items.length} 章。`)
       }
+      const res = (await window.api?.libraryImportTxt?.({
+        title: payload.title,
+        sourceRef: payload.sourceRef,
+        items: payload.items
+      })) as any
+      await refreshLibrary(res?.bookId)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.includes('BOOK_IMPORT::UNSUPPORTED_FORMAT')) {
+        setErr('当前仅支持导入 TXT / EPUB。')
+      } else if (msg.includes('EPUB_PARSE::')) {
+        setErr(msg.split('::').slice(2).join('::') || 'EPUB 解析失败。')
+      } else {
+        setErr(msg)
+      }
+    } finally {
+      if (importTxtInputRef.current) importTxtInputRef.current.value = ''
     }
-    reader.readAsText(file)
   }
 
   async function onRenameActiveBook() {
@@ -459,7 +475,8 @@ export function MainView() {
         url: String(res?.url ?? ''),
         domain: (res?.domain as string | null) ?? null,
         contentText,
-        preview: String(res?.preview ?? '')
+        preview: String(res?.preview ?? ''),
+        extractDebug: res?.extractDebug
       })
       setWebBookPreview(null)
     } catch (e) {
@@ -539,7 +556,8 @@ export function MainView() {
         detailUrl: String(res?.detailUrl ?? ''),
         domain: (res?.domain as string | null) ?? null,
         introText: String(res?.introText ?? ''),
-        chapters: normalized
+        chapters: normalized,
+        tocStatus: (res?.tocStatus as 'ready' | 'partial' | 'missing' | undefined) ?? undefined
       })
       setWebPreview(null)
     } catch (e) {
@@ -599,8 +617,14 @@ export function MainView() {
       setNotice('网页正文已保存到书架。')
       setWebPreview(null)
     } catch (e) {
-      setWebErrCode('UNKNOWN')
-      setWebErr(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg === 'BOOK_TYPE_MISMATCH') {
+        setWebErrCode('BOOK_TYPE_MISMATCH')
+        setWebErr('当前选择的是本地导入书籍，不能把网页章节保存到该书中。请切换到「网页书」或清空目标书后再保存。')
+      } else {
+        setWebErrCode('UNKNOWN')
+        setWebErr(msg)
+      }
     } finally {
       setWebLoading(false)
     }
@@ -640,12 +664,27 @@ export function MainView() {
     if (String(it.contentText ?? '').trim().length > 0) return it.contentText
     const url = String(sourceUrl ?? '').trim()
     if (!url) return null
+    setWebPendingNextChapter(null)
     setNotice('正在提取章节正文…（首次进入该章节会稍慢一点）')
     const res = (await window.api?.webExtractStructuredAtUrl?.({ url })) as any
     const contentText = String(res?.content?.textContent ?? '').trim()
     if (!contentText) return null
     await window.api?.libraryUpdateItemContent?.({ itemId, contentText })
     if (activeBookId) await loadBook(activeBookId)
+    if (res?.nextChapterNeedsConfirmation && Array.isArray(res?.nextChapterCandidates) && res.nextChapterCandidates.length) {
+      setWebPendingNextChapter({
+        itemId,
+        bookId: activeBookId,
+        chapterTitle: String(it.title || '').trim(),
+        candidates: res.nextChapterCandidates as Array<{ url: string; label: string; confidence: number; reason: string }>
+      })
+      showToast({
+        type: 'success',
+        message: '正文已保存。下一章链接不够确定，请在下方「候选」中选一项在网页窗口打开核验。',
+        sticky: false,
+        durationMs: 6500
+      })
+    }
     return contentText
   }
 
@@ -814,12 +853,12 @@ export function MainView() {
               <button className={`toolChip ${tab === 'all' ? 'toolChipActive' : ''}`} onClick={() => setTab('all')}>全部</button>
               <button className={`toolChip ${tab === 'file' ? 'toolChipActive' : ''}`} onClick={() => setTab('file')}>本地</button>
               <button className={`toolChip ${tab === 'url' ? 'toolChipActive' : ''}`} onClick={() => setTab('url')}>网页</button>
-              <label className="toolIconBtn" title="导入 TXT">
+              <label className="toolIconBtn" title="导入 TXT / EPUB">
                 ＋
                 <input
                   ref={importTxtInputRef}
                   type="file"
-                  accept=".txt,text/plain"
+                  accept=".txt,text/plain,.epub,application/epub+zip"
                   style={{ display: 'none' }}
                   onChange={(e) => {
                     const f = e.target.files?.[0]
@@ -838,7 +877,7 @@ export function MainView() {
               {filteredBooks.length === 0 ? (
                 <div className="toolEmpty">
                   <div className="toolEmptyArt">📘</div>
-                  <div>暂无书籍，点击上方导入 TXT 或网页</div>
+                  <div>暂无书籍，点击上方导入 TXT / EPUB 或网页</div>
                 </div>
               ) : (
                 filteredBooks.map((b) => {
@@ -985,6 +1024,33 @@ export function MainView() {
                   </div>
                 </div>
               ) : null}
+              {webPendingNextChapter ? (
+                <div className="toolPreviewPane" style={{ marginTop: 10 }}>
+                  <div className="toolBottomHead">
+                    <strong>下一章候选（需人工确认）</strong>
+                    <button type="button" className="toolChip" onClick={() => setWebPendingNextChapter(null)}>
+                      关闭
+                    </button>
+                  </div>
+                  <div className="hint" style={{ marginBottom: 8 }}>
+                    当前：{webPendingNextChapter.chapterTitle}。置信度中等时不会自动跟链，请点击候选在「网页导入」窗口打开，确认后再继续阅读。
+                  </div>
+                  <div className="row" style={{ flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' }}>
+                    {webPendingNextChapter.candidates.map((c, i) => (
+                      <button
+                        key={`${c.url}-${i}`}
+                        type="button"
+                        className="toolChip"
+                        title={c.url}
+                        onClick={() => void window.api?.webOpen?.({ url: c.url })}
+                      >
+                        {(c.label || `候选 ${i + 1}`).slice(0, 22)}
+                        {typeof c.confidence === 'number' ? ` · ${Math.round(c.confidence * 100)}%` : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </>
           )}
 
@@ -994,6 +1060,17 @@ export function MainView() {
                 <strong>{webPreview.title}</strong>
                 <button className="toolChip toolChipActive" onClick={() => void onSaveWeb()}>保存到书架</button>
               </div>
+              {webPreview.extractDebug &&
+              typeof webPreview.extractDebug === 'object' &&
+              webPreview.extractDebug !== null &&
+              'selectedStrategy' in (webPreview.extractDebug as object) ? (
+                <div className="hint" style={{ marginBottom: 6 }}>
+                  抽取策略：{(webPreview.extractDebug as { selectedStrategy?: string }).selectedStrategy}
+                  {' · '}
+                  候选分{' '}
+                  {JSON.stringify((webPreview.extractDebug as { candidateScores?: Record<string, number> }).candidateScores ?? {})}
+                </div>
+              ) : null}
               <pre className="toolPreviewText">{webPreview.preview || '（暂无预览）'}</pre>
             </div>
           ) : null}
@@ -1004,7 +1081,32 @@ export function MainView() {
                 <strong>{webBookPreview.bookTitle}</strong>
                 <button className="toolChip toolChipActive" onClick={() => void onImportWebBook()}>导入目录</button>
               </div>
-              <div className="hint">目录 {webBookPreview.chapters.length} 章</div>
+              <div className="hint">
+                入库后共 {webBookPreview.chapters.length + 1} 条（含简介）· 章节 {webBookPreview.chapters.length}
+                {webBookPreview.tocStatus === 'ready'
+                  ? ' · 状态：完整'
+                  : webBookPreview.tocStatus === 'partial'
+                    ? ' · 状态：可能不完整'
+                    : null}
+              </div>
+              <div
+                className="toolPreviewText"
+                style={{ maxHeight: 200, overflow: 'auto', marginTop: 8, whiteSpace: 'normal', fontSize: 13 }}
+              >
+                <div title={webBookPreview.introText || ''}>
+                  <strong>1.</strong> 简介{' '}
+                  <span style={{ opacity: 0.85 }}>
+                    {webBookPreview.introText
+                      ? `${webBookPreview.introText.slice(0, 100)}${webBookPreview.introText.length > 100 ? '…' : ''}`
+                      : '（暂无简介摘要）'}
+                  </span>
+                </div>
+                {webBookPreview.chapters.map((c, i) => (
+                  <div key={`${c.url}-${i}`} style={{ marginTop: 6 }} title={c.url}>
+                    <strong>{i + 2}.</strong> {c.title || `章节 ${i + 1}`}
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
 

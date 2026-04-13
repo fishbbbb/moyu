@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('api', {
   overlayMoveStart: () => ipcRenderer.send('overlay:moveStart'),
   overlayMoveStop: () => ipcRenderer.send('overlay:moveStop'),
   overlayChapterStep: (delta: number) => ipcRenderer.invoke('overlay:chapterStep', { delta }),
+  overlayClearWebNextCandidates: () => ipcRenderer.invoke('overlay:clearWebNextCandidates'),
 
   progressSet: (args: { bookId: string; itemId: string; lineIndex: number }) => ipcRenderer.invoke('progress:set', args),
 
@@ -98,6 +99,12 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_evt: unknown, payload: unknown) => cb(payload)
     ipcRenderer.on('overlay:kMode', handler)
     return () => ipcRenderer.off('overlay:kMode', handler)
+  },
+
+  overlayOnToast: (cb: (payload: unknown) => void) => {
+    const handler = (_evt: unknown, payload: unknown) => cb(payload)
+    ipcRenderer.on('overlay:toast', handler)
+    return () => ipcRenderer.off('overlay:toast', handler)
   }
 })
 
@@ -164,11 +171,18 @@ export type Api = typeof globalThis & {
     overlayStepDisplay: (delta: number) => Promise<unknown>
     overlaySetBounds: (args: { x?: number; y?: number; width?: number; height?: number }) => Promise<unknown>
     overlaySetBoundsFast: (args: { x?: number; y?: number; width?: number; height?: number }) => void
+    overlayMoveStart: () => void
+    overlayMoveStop: () => void
+    overlayChapterStep: (delta: number) => Promise<unknown>
+    overlayClearWebNextCandidates: () => Promise<unknown>
+    overlayKModeSet: (enabled: boolean) => Promise<unknown>
 
     progressSet: (args: { bookId: string; itemId: string; lineIndex: number }) => Promise<unknown>
     overlayOnSession: (cb: (session: unknown) => void) => () => void
     overlayOnBounds: (cb: (bounds: unknown) => void) => () => void
     overlayOnStepDisplay: (cb: (payload: unknown) => void) => () => void
+    overlayOnKMode: (cb: (payload: unknown) => void) => () => void
+    overlayOnToast: (cb: (payload: unknown) => void) => () => void
   }
 }
 

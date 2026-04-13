@@ -18,12 +18,21 @@ type OverlayConfig = {
   linesPerTick: number
 }
 
+type WebNextChapterCandidate = {
+  url: string
+  label: string
+  confidence: number
+  reason: string
+}
+
 type OverlaySession = {
   bookId: string
   itemId: string
   lines: string[]
   lineIndex: number
   playing: boolean
+  webNextCandidates?: WebNextChapterCandidate[]
+  webChapterSourceUrl?: string | null
 }
 
 type HotkeyAction = 'playPause' | 'pagePrev' | 'pageNext' | 'chapterPrev' | 'chapterNext'
@@ -207,6 +216,9 @@ export function OverlayView() {
   const lastRepaintRef = useRef<{ at: number; sig: string }>({ at: 0, sig: '' })
   const repaintBurstTimersRef = useRef<number[]>([])
   /** 阅读框拖拽缩放时：用预览行列驱动排版，松手后再 applyCfg，避免每帧写盘/重算导致卡顿 */
+  const [overlayToast, setOverlayToast] = useState<null | { type: 'error' | 'info'; message: string; detail?: string }>(null)
+  const overlayToastTimerRef = useRef<number | null>(null)
+
   const [previewRowsCols, setPreviewRowsCols] = useState<null | { rows: number; cols: number }>(null)
   /** 正文区域实际像素尺寸（随窗口变化即时更新，避免只依赖 IPC bounds 滞后导致 canvas 被拉伸压扁） */
   const [holderLayout, setHolderLayout] = useState<{ w: number; h: number } | null>(null)
@@ -635,6 +647,34 @@ export function OverlayView() {
   useEffect(() => {
     idxRef.current = idx
   }, [idx])
+
+  useEffect(() => {
+    const off =
+      window.api?.overlayOnToast?.((payload) => {
+        const p = payload as { type?: string; message?: string; detail?: string }
+        if (!p?.message) return
+        if (overlayToastTimerRef.current) {
+          window.clearTimeout(overlayToastTimerRef.current)
+          overlayToastTimerRef.current = null
+        }
+        setOverlayToast({
+          type: p.type === 'error' ? 'error' : 'info',
+          message: String(p.message),
+          detail: p.detail ? String(p.detail) : undefined
+        })
+        overlayToastTimerRef.current = window.setTimeout(() => {
+          setOverlayToast(null)
+          overlayToastTimerRef.current = null
+        }, p.type === 'error' ? 10_000 : 6500)
+      }) ?? null
+    return () => {
+      off?.()
+      if (overlayToastTimerRef.current) {
+        window.clearTimeout(overlayToastTimerRef.current)
+        overlayToastTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     // 自动阅读时 idx 在渲染进程推进；把它同步到主进程的 overlay session，
@@ -1319,6 +1359,56 @@ export function OverlayView() {
         stopWindowMoveGesture()
       }}
     >
+      {overlayToast ? (
+        <div
+          data-nodrag="1"
+          style={{
+            position: 'fixed',
+            top: 10,
+            left: 10,
+            right: 10,
+            zIndex: 100000,
+            maxWidth: 'min(560px, calc(100% - 20px))',
+            margin: '0 auto',
+            padding: '10px 12px',
+            borderRadius: 10,
+            fontSize: 13,
+            lineHeight: 1.45,
+            color: '#f8fafc',
+            background: overlayToast.type === 'error' ? 'rgba(127,29,29,0.92)' : 'rgba(30,41,59,0.92)',
+            border: '1px solid rgba(255,255,255,0.18)',
+            boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
+            pointerEvents: 'auto',
+            WebkitAppRegion: 'no-drag'
+          } as any}
+        >
+          <div style={{ fontWeight: 600 }}>{overlayToast.message}</div>
+          {overlayToast.detail ? <div style={{ marginTop: 4, opacity: 0.9, wordBreak: 'break-all' }}>{overlayToast.detail}</div> : null}
+          <button
+            type="button"
+            data-nodrag="1"
+            onClick={() => {
+              if (overlayToastTimerRef.current) {
+                window.clearTimeout(overlayToastTimerRef.current)
+                overlayToastTimerRef.current = null
+              }
+              setOverlayToast(null)
+            }}
+            style={{
+              marginTop: 8,
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: '1px solid rgba(255,255,255,0.35)',
+              background: 'rgba(255,255,255,0.12)',
+              color: '#fff',
+              cursor: 'pointer',
+              fontSize: 12
+            }}
+          >
+            关闭
+          </button>
+        </div>
+      ) : null}
       <div
         style={
           {
@@ -1568,6 +1658,60 @@ export function OverlayView() {
           </>
         ) : null}
         </div>
+        {session?.webNextCandidates && session.webNextCandidates.length ? (
+          <div
+            data-nodrag="1"
+            style={{
+              flexShrink: 0,
+              padding: '6px 10px 10px',
+              fontSize: 12,
+              color: '#e2e8f0',
+              borderTop: '1px solid rgba(255,255,255,0.12)',
+              WebkitAppRegion: 'no-drag'
+            } as any}
+          >
+            <div style={{ marginBottom: 6, opacity: 0.9 }}>下一章链接候选（点选在网页窗口打开）</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+              {session.webNextCandidates.map((c, i) => (
+                <button
+                  key={`${c.url}-${i}`}
+                  type="button"
+                  data-nodrag="1"
+                  title={c.url}
+                  onClick={() => void window.api?.webOpen?.({ url: c.url })}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: 6,
+                    border: '1px solid rgba(148,163,184,0.45)',
+                    background: 'rgba(15,23,42,0.55)',
+                    color: '#f1f5f9',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    maxWidth: '100%'
+                  }}
+                >
+                  {(c.label || `候选${i + 1}`).slice(0, 18)} · {Math.round((c.confidence || 0) * 100)}%
+                </button>
+              ))}
+              <button
+                type="button"
+                data-nodrag="1"
+                onClick={() => void window.api?.overlayClearWebNextCandidates?.()}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(248,250,252,0.25)',
+                  background: 'transparent',
+                  color: '#cbd5e1',
+                  cursor: 'pointer',
+                  fontSize: 11
+                }}
+              >
+                收起候选
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
