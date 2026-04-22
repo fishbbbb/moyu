@@ -352,13 +352,30 @@ export function MainView() {
   async function onRenameActiveBook() {
     if (!activeBookId) return
     const curTitle = active?.book.title ?? ''
-    const next = window.prompt('重命名书籍', curTitle)
+    await renameBookByPrompt(activeBookId, curTitle)
+  }
+
+  async function renameBookByPrompt(bookId: string, currentTitle: string) {
+    const next = window.prompt('重命名书籍', currentTitle)
     if (!next) return
     const title = next.trim()
     if (!title) return
     try {
-      await window.api?.bookRename?.({ bookId: activeBookId, newTitle: title })
-      await refreshLibrary(activeBookId)
+      const api = window.api as
+        | (typeof window.api & {
+            bookRename?: (args: { bookId: string; newTitle: string }) => Promise<unknown>
+            libraryRenameBook?: (args: { bookId: string; title: string }) => Promise<unknown>
+          })
+        | undefined
+
+      if (api?.bookRename) {
+        await api.bookRename({ bookId, newTitle: title })
+      } else if (api?.libraryRenameBook) {
+        await api.libraryRenameBook({ bookId, title })
+      } else {
+        throw new Error('RENAME_API_UNAVAILABLE')
+      }
+      await refreshLibrary(bookId)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     }
@@ -915,31 +932,24 @@ export function MainView() {
                       </div>
                       <div className="toolBookActions">
                         <button
-                          className="toolIconBtn"
+                          className="toolRowActionBtn"
                           title="重命名"
                           onClick={(e) => {
                             e.stopPropagation()
-                            void (async () => {
-                              const next = window.prompt('重命名书籍', b.title)
-                              if (!next) return
-                              const title = next.trim()
-                              if (!title) return
-                              await window.api?.bookRename?.({ bookId: b.id, newTitle: title })
-                              await refreshLibrary(b.id)
-                            })()
+                            void renameBookByPrompt(b.id, b.title)
                           }}
                         >
-                          ✏️
+                          重命名
                         </button>
                         <button
-                          className="toolIconBtn"
+                          className="toolRowActionBtn toolRowActionBtnDanger"
                           title="删除"
                           onClick={(e) => {
                             e.stopPropagation()
                             void onDeleteBooks([b.id])
                           }}
                         >
-                          🗑️
+                          删除
                         </button>
                       </div>
                     </div>

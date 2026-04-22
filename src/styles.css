@@ -168,6 +168,7 @@ body.overlayAuxHost #root {
 
 .toolBookActions {
   display: flex;
+  gap: 6px;
   opacity: 0.72;
   pointer-events: auto;
   transition: opacity 120ms ease;
@@ -175,6 +176,33 @@ body.overlayAuxHost #root {
 
 .toolBookRow:hover .toolBookActions {
   opacity: 1;
+}
+
+.toolRowActionBtn {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  height: 26px;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.toolRowActionBtn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.toolRowActionBtnDanger {
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.toolRowActionBtnDanger:hover {
+  background: #fef2f2;
+  border-color: #ef4444;
 }
 
 .toolTwoCol {
