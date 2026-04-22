@@ -5,6 +5,8 @@
 > 关联：`desktop/electron/main.ts`（`web:extractBookDetail`）、`desktop/electron/db.ts`（`importWebBook`）、`desktop/src/views/MainView.tsx`、`desktop/src/components/WebImport.tsx`  
 > 背景：用户在晋江等站点测试时，书架书名冗长、目录不可见、无法验证提取是否成功；此前对 `src/content-extractor/chapterDetector.ts` 的通用增强**未自动作用于桌面端**（桌面书籍导入走独立页内脚本路径），需在规范层明确「产品真值」后再迭代算法。
 
+> 2026-04-16 实施进展：已完成 `core + adapters` 结构迁移、PASS 一致性门禁、性能分位报告与核心最小自测（`selftest:web-import-core`）。当前严格回归为 18 站点 12 PASS / 6 FAIL，后续按失败站点与 p90 耗时双维度优化。
+
 ---
 
 ## 1. 问题陈述

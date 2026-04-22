@@ -1,0 +1,1050 @@
+{
+  "generatedAt": "2026-04-22T01:14:25.401Z",
+  "total": 18,
+  "passed": 13,
+  "failed": 5,
+  "performance": {
+    "totalMs": {
+      "p50": 2051,
+      "p90": 7726,
+      "avg": 3007
+    },
+    "chapterProbeMs": {
+      "p50": 62,
+      "p90": 268,
+      "avg": 91
+    },
+    "timeoutRate": 0,
+    "domTooLargeRate": 0
+  },
+  "results": [
+    {
+      "id": "qidian",
+      "name": "起点中文网",
+      "detailUrl": "https://book.qidian.com/info/1040783054/",
+      "chapterUrl": "https://read.qidian.com/chapter/ex-xXw912HwCpOPIBxLXdQ2/H487g_cECzVMs5iq0oQwLQ2/",
+      "checks": {
+        "basicInfo": false,
+        "toc": false,
+        "detailContent": false,
+        "chapterContent": true,
+        "content": false,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.qidian.com/book/1040783054/",
+        "chapterFinalUrl": "https://read.qidian.com/chapter/ex-xXw912HwCpOPIBxLXdQ2/H487g_cECzVMs5iq0oQwLQ2/",
+        "tocSource": "none",
+        "tocEntryCount": 0,
+        "tocSampleTitles": [],
+        "tocQuality": {
+          "chapterLikeCount": 0,
+          "ratio": 0
+        },
+        "bookTitle": "全职法师之青衣剑仙",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "",
+        "chapterTitle": "",
+        "chapterTitleSource": "none",
+        "chapterLength": 0,
+        "chapterExcerpt": "",
+        "nav": {
+          "nextUrl": "",
+          "prevUrl": "",
+          "nextProbe": "ANTI_BOT_OR_BLOCKED(expected_block)"
+        },
+        "errorCode": "ANTI_BOT_OR_BLOCKED",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 957,
+        "detailProbeMs": 48,
+        "chapterFetchMs": 329,
+        "chapterProbeMs": 11,
+        "navigationProbeMs": 0,
+        "totalMs": 2051
+      },
+      "failures": [
+        "基本信息提取失败（标题/URL）",
+        "目录提取失败（章节样本质量不足）",
+        "简介页正文提取失败（长度不足或未识别）",
+        "正文提取失败（简介页与章节页未同时达标）"
+      ],
+      "pass": false
+    },
+    {
+      "id": "jjwxc",
+      "name": "晋江文学城",
+      "detailUrl": "http://www.jjwxc.net/onebook.php?novelid=9338905",
+      "chapterUrl": "https://www.jjwxc.net/onebook.php?chapterid=1&novelid=9338905",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.jjwxc.net/onebook.php?novelid=9338905",
+        "chapterFinalUrl": "https://www.jjwxc.net/onebook.php?novelid=9338905&chapterid=1",
+        "tocSource": "synthetic_query",
+        "tocEntryCount": 5,
+        "tocSampleTitles": [
+          "《你的雪人能活多久》稚楚 ^第1章^ 最新更新:2025-02-24 21:26:11 晋江文学城",
+          "《你的雪人能活多久》稚楚 ^第2章^ 最新更新:2025-01-10 21:59:44 晋江文学城",
+          "《你的雪人能活多久》稚楚 ^第3章^ 最新更新:2025-01-11 21:23:15 晋江文学城",
+          "《你的雪人能活多久》稚楚 ^第4章^ 最新更新:2025-01-13 10:04:09 晋江文学城",
+          "《你的雪人能活多久》稚楚 ^第5章^ 最新更新:2025-01-13 21:16:03 晋江文学城"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 5,
+          "ratio": 1
+        },
+        "bookTitle": "你的雪人能活多久",
+        "detailTitle": "《你的雪人能活多久》稚楚_晋江文学城_【原创小说|纯爱小说】",
+        "detailLength": 795,
+        "detailExcerpt": "祝知希26年来过着精彩纷呈的人生，从非洲到南极，从背包客到志愿者，主打就是折腾。可某天醒来，他手心意外多了个生命倒计时——[60天0时0分0秒]我只能活六十天了？？几天后的他被迫参加相亲，对象是个无趣的考古系教授、空有美貌的面瘫Alpha，比雪人还冷冰冰。祝知希：“我是beta，跟我结婚等同绝育。”岂止绝育，我现在是半截身子入土的预制尸体谁来都是冲喜，直接打包送进鳏夫大本营贴个丧偶标记。而且谁要跟alpha结婚啊？信息素乱喷易感期连下半身都管不住的……不是，倒计时怎么停了？祝知希：“等一下，绝、绝育其实也有优点……",
+        "chapterTitle": "《你的雪人能活多久》稚楚 ^第1章^ 最新更新:2025-02-24 21:26:11 晋江文学城",
+        "chapterTitleSource": "extractor",
+        "chapterLength": 4562,
+        "chapterExcerpt": "“我死都不会结婚的。”　　祝知希拖着行李箱，被人流推入车厢：“真的，哥，你别管我了。别，司机也别来，我已经上地铁了。”说完，他挂断了电话。　　中午12点半，不算是高峰期，但地铁车厢仍拥挤得像涨了气的罐头，不仅人多，信息素也混杂，仿佛下一秒就会爆炸。　　但这些对祝知希作用不大。他宁愿挤在这里，也不想被家里的司机接走。以他目前的状况，不是被送去西餐厅相亲，就是去医院看病。　　两天前，他还在东非的野生动物保护基地做义工，自由自在，活力无限。也不知怎么回事，和父亲通视频电话时，他忽然流了鼻血，想找纸擦擦，一起身，却晕倒在地",
+        "nav": {
+          "nextUrl": "https://www.jjwxc.net/onebook.php?novelid=9338905&chapterid=2",
+          "prevUrl": "",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 586,
+        "detailProbeMs": 460,
+        "chapterFetchMs": 236,
+        "chapterProbeMs": 212,
+        "navigationProbeMs": 191,
+        "totalMs": 3387
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "zongheng",
+      "name": "纵横中文网",
+      "detailUrl": "https://huayu.zongheng.com/showchapter/1450262.html",
+      "chapterUrl": "https://m.zongheng.com/chapter/1450262/91755869",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://huayu.zongheng.com/showchapter/1450262.html",
+        "chapterFinalUrl": "https://m.zongheng.com/chapter/1450262/91755869",
+        "tocSource": "detail_page",
+        "tocEntryCount": 739,
+        "tocSampleTitles": [
+          "第1章 这贞洁我不在乎了！",
+          "第2章 求陛下疼我",
+          "第3章 为何没赴约？",
+          "第4章 我没错",
+          "第5章 她不过是替身而已"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 739,
+          "ratio": 1
+        },
+        "bookTitle": "抢我婚约嫁太子？我携孕肚嫁皇帝",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "《抢我婚约嫁太子？我携孕肚嫁皇帝》目录_纵横女生网_古代言情小说_抢我婚约嫁太子？我携孕肚嫁皇帝所有章节_在线阅读",
+        "chapterTitle": "第1章 这贞洁我不在乎了！",
+        "chapterTitleSource": "toc_match",
+        "chapterLength": 2094,
+        "chapterExcerpt": "正是隆冬。 一场白毛雪，将整个鹊山行宫，笼在其中。 锦宁立在深不见底的雪崖前。 席卷雪崖的冷风和身体之中不断涌现的热意，一同汇集在她的身上，仿若要将她整个人撕碎。 心底的燥热之意，越发汹涌，几乎将她的神智淹没。 此时她的手中，正紧紧地握着一根金钗，那金钗已经刺伤了她的手掌。 疼痛让她维持着最后的清醒。 身后雪林之中，隐隐传来男子的对话声。 “这药烈性得很，她跑不远的。” “等找到人，就算是世家贵女，也得亲自解了这华服，匍匐在地上求我们！” 锦宁没想到，自己会重生。 重生在跳崖自尽、用性命保贞洁的这一刻！ 前世。 她",
+        "nav": {
+          "nextUrl": "https://m.zongheng.com/chapter/1450262/91755870_1",
+          "prevUrl": "https://m.zongheng.com/chapter/1450262/91755869_1",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 718,
+        "detailProbeMs": 140,
+        "chapterFetchMs": 339,
+        "chapterProbeMs": 56,
+        "navigationProbeMs": 299,
+        "totalMs": 1712
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "hongxiu",
+      "name": "红袖读书（红袖添香）",
+      "detailUrl": "https://m.hongxiu.com/chapterlist/13259576105794804",
+      "chapterUrl": "https://m.hongxiu.com/chapter/13259576105794804/35665597732176681",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://m.hongxiu.com/chapterlist/13259576105794804",
+        "chapterFinalUrl": "https://m.hongxiu.com/chapter/13259576105794804/35665597732176681",
+        "tocSource": "detail_page",
+        "tocEntryCount": 38,
+        "tocSampleTitles": [
+          "天武界境界划分 APP限免",
+          "第一章：大梦，初觉 APP限免",
+          "第二章：孟婆，月老，花果山 APP限免",
+          "第三章：神佛，六耳，悟能 APP限免",
+          "第四章：九鼎，魔佛 APP限免"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 38,
+          "ratio": 1
+        },
+        "bookTitle": "取经之后三千年",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "提供《取经之后三千年》无删减完结版全文在线免费阅读，全集完整无广告无弹窗全本小说txt百度云网盘下载。如果您喜欢小说取经之后三千年，请将最新章节目录加入收藏方便您下次阅读。",
+        "chapterTitle": "第七章：苏醒，觉醒 APP限免",
+        "chapterTitleSource": "toc_match",
+        "chapterLength": 8212,
+        "chapterExcerpt": "第七章：苏醒，觉醒\n\n 　　一月后。　　杨戬缓缓睁开了紧闭已久的双眼，发现自己的妹妹正双臂枕着头酣睡着，杨戬欣慰一笑，变出一件袍子给杨婵盖上，轻悄悄打开了门，来到了屋外。　　随即一道神念通知了哮天犬，让他不要声张，让妹妹好好睡一觉，随即两人到了议事堂。　　杨戬拇指与食指张开按着太阳穴，一旁哮天犬正襟危坐，等着自家主人开口。　　杨戬稍稍回了回神，问道：“天上一天，人间一年，一晃三十年过去，你且说说发生了些什么事。”　　哮天犬闻言，起身弯腰抱拳道：“回主人话，要说大事儿没有，不过有一件怪事儿。”　　“哦？说来听听。”杨",
+        "nav": {
+          "nextUrl": "https://m.hongxiu.com/chapter/13259576105794804/35689595586100501",
+          "prevUrl": "",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 459,
+        "detailProbeMs": 28,
+        "chapterFetchMs": 366,
+        "chapterProbeMs": 124,
+        "navigationProbeMs": 478,
+        "totalMs": 1560
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "xxsy",
+      "name": "潇湘书院",
+      "detailUrl": "https://www.xxsypro.com/book/8263527304935303",
+      "chapterUrl": "https://www.xxsy.net/chapter/8263527304935303/22194324903768035",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.xxsypro.com/book/8263527304935303",
+        "chapterFinalUrl": "https://www.xxsy.net/chapter/8263527304935303/22194324903768035",
+        "tocSource": "detail_page",
+        "tocEntryCount": 2501,
+        "tocSampleTitles": [
+          "第1章 重生",
+          "第2章 一定会有办法",
+          "第3章 前未婚夫",
+          "第4章 蠢得可怜",
+          "第5章 睡着了"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 2498,
+          "ratio": 1
+        },
+        "bookTitle": "恰似寒光遇骄阳",
+        "detailTitle": "《恰似寒光遇骄阳》全文免费下载阅读 – 潇湘书院",
+        "detailLength": 1116,
+        "detailExcerpt": "一觉醒来，她看着镜子里的自己， 爆炸头血腥纹身脸化得像鬼，多看一秒都辣眼睛。重生前，她另有所爱，一心逃离，对他恨之入骨。上一世脑子被门夹了放着绝色老公不要，被渣男贱女所害，被最信任的闺密洗脑，落了个众叛亲离的下场。这一世，任各路牛鬼蛇神处心积虑巴不得她离婚让位，不好意思，本小姐智商上线了！上架时间：2017-08-15 09:56:04第1章 重生叶绾绾睁开眼睛。对上了一双令她恐惧到连灵魂都在颤抖的眸子。“啊——”女孩苍白的手指因为恐惧而陡然用力绞紧。怎么会这样？难道这里是地狱吗？为什么她明明已经死了，却又回到了这",
+        "chapterTitle": "第1章 重生",
+        "chapterTitleSource": "toc_match",
+        "chapterLength": 936,
+        "chapterExcerpt": "叶绾绾睁开眼睛。对上了一双令她恐惧到连灵魂都在颤抖的眸子。“啊——”女孩苍白的手指因为恐惧而陡然用力绞紧。怎么会这样？难道这里是地狱吗？为什么她明明已经死了，却又回到了这里，回到了这个男人身边？她出于本能的抵抗着，“别碰我！！！”男人如同被碰触了逆鳞，嗜血的面容瞬间阴云密布，冰冷薄削的唇带着毁灭性的狠厉撕咬下来，如同要连同她的骨血一起拆吞入腹。叶绾绾的大脑一片混乱，只能无意识地喃喃着，“为什么……为什么是我……司夜寒……为什么一定要是我……”“因为，只有你。”耳边传来男人低沉喑哑的声音，如同一道枷锁，连她的灵魂也一",
+        "nav": {
+          "nextUrl": "https://www.xxsy.net/chapter/8263527304935303/22194354975533112",
+          "prevUrl": "",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 786,
+        "detailProbeMs": 2267,
+        "chapterFetchMs": 916,
+        "chapterProbeMs": 268,
+        "navigationProbeMs": 611,
+        "totalMs": 5932
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "yq",
+      "name": "云起书院",
+      "detailUrl": "http://yunqi.qq.com/bk/ns/20304305.html",
+      "chapterUrl": "https://yunqi.qq.com/read/20304305/1",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://yunqi.qq.com/detail/20304305?from=old",
+        "chapterFinalUrl": "https://yunqi.qq.com/read/20304305/1",
+        "tocSource": "detail_page",
+        "tocEntryCount": 2501,
+        "tocSampleTitles": [
+          "第2489章 独家新番外上线潇湘书院啦更新时间：2022-12-02 11:07:29",
+          "【新书《月亮在怀里》】",
+          "囧囧有妖2022新书发布：《月亮在怀里》欢迎来磕糖！",
+          "●二囧新书《余生有你，甜又暖》已发布！！！",
+          "宝宝们，6月29日新书见啦～"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 2498,
+          "ratio": 1
+        },
+        "bookTitle": "恰似寒光遇骄阳",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "一觉醒来，她看着镜子里的自己，爆炸头血腥纹身脸化得像鬼，多看一秒都辣眼睛。重生前，她另有所爱，一心逃离，对他恨之入骨。上一世脑子被门夹了放着绝色老公不要，被渣男贱女所害，被最信任的闺密洗脑，落了个众叛",
+        "chapterTitle": "第1章 重生",
+        "chapterTitleSource": "toc_match",
+        "chapterLength": 976,
+        "chapterExcerpt": "叶绾绾睁开眼睛。\n对上了一双令她恐惧到连灵魂都在颤抖的眸子。\n“啊——”\n女孩苍白的手指因为恐惧而陡然用力绞紧。\n怎么会这样？\n难道这里是地狱吗？\n为什么她明明已经死了，却又回到了这里，回到了这个男人身边？\n她出于本能的抵抗着，“别碰我！！！”\n男人如同被碰触了逆鳞，嗜血的面容瞬间阴云密布，冰冷薄削的唇带着毁灭性的狠厉撕咬下来，如同要连同她的骨血一起拆吞入腹。\n叶绾绾的大脑一片混乱，只能无意识地喃喃着，“为什么……为什么是我……司夜寒……为什么一定要是我……”\n“因为，只有你。”\n耳边传来男人低沉喑哑的声音，如同一",
+        "nav": {
+          "nextUrl": "https://yunqi.qq.com/read/20304305/2",
+          "prevUrl": "",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 2506,
+        "detailProbeMs": 2050,
+        "chapterFetchMs": 1043,
+        "chapterProbeMs": 76,
+        "navigationProbeMs": 1078,
+        "totalMs": 7726
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "seventeenk",
+      "name": "17K 小说网",
+      "detailUrl": "https://www.17k.com/chapter/3473586/46910372.html",
+      "chapterUrl": "https://www.17k.com/chapter/3473586/46910372.html",
+      "checks": {
+        "basicInfo": false,
+        "toc": false,
+        "detailContent": false,
+        "chapterContent": false,
+        "content": false,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.17k.com/chapter/3473586/46910372.html",
+        "chapterFinalUrl": "https://www.17k.com/chapter/3473586/46910372.html",
+        "tocSource": "none",
+        "tocEntryCount": 0,
+        "tocSampleTitles": [],
+        "tocQuality": {
+          "chapterLikeCount": 0,
+          "ratio": 0
+        },
+        "bookTitle": "挣扎着向阳",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "",
+        "chapterTitle": "",
+        "chapterTitleSource": "none",
+        "chapterLength": 0,
+        "chapterExcerpt": "",
+        "nav": {
+          "nextUrl": "https://www.17k.com/chapter/3473586/46910373.html",
+          "prevUrl": "",
+          "nextProbe": "ANTI_BOT_OR_BLOCKED(expected_block)"
+        },
+        "errorCode": "ANTI_BOT_OR_BLOCKED",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 292,
+        "detailProbeMs": 5,
+        "chapterFetchMs": 142,
+        "chapterProbeMs": 4,
+        "navigationProbeMs": 135,
+        "totalMs": 993
+      },
+      "failures": [
+        "基本信息提取失败（标题/URL）",
+        "目录提取失败（章节样本质量不足）",
+        "简介页正文提取失败（长度不足或未识别）",
+        "章节页正文提取失败（长度不足或未识别）",
+        "正文提取失败（简介页与章节页未同时达标）"
+      ],
+      "pass": false
+    },
+    {
+      "id": "faloo",
+      "name": "飞卢中文网",
+      "detailUrl": "http://b.faloo.com/html_1207_1207344/",
+      "chapterUrl": "https://b.faloo.com/1207344_1271.html",
+      "checks": {
+        "basicInfo": true,
+        "toc": false,
+        "detailContent": true,
+        "chapterContent": false,
+        "content": false,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "http://b.faloo.com/html_1207_1207344/",
+        "chapterFinalUrl": "https://b.faloo.com/1207344_1271.html",
+        "tocSource": "detail_page",
+        "tocEntryCount": 10,
+        "tocSampleTitles": [
+          "书库",
+          "标签选书",
+          "排行榜",
+          "畅读卡",
+          "畅读书库"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 0,
+          "ratio": 0
+        },
+        "bookTitle": "折翼",
+        "detailTitle": "折翼",
+        "detailLength": 238,
+        "detailExcerpt": "① 若读者发现有小说折翼最新章节,而飞卢小说又没有更新，请发短信通知我们，您的热心是对网站最大的支持。\n②《折翼》是一部优秀的武侠仙侠作品,作者辛勤码字为了让更多读者欣赏。\n③ 小说折翼所描述的内容只是作者个人观点,与飞卢小说的立场无关,本站只为书友提供阅读平台。\n④《折翼》是一本非常好的书,情节动人,文笔优美,让人看了心痒痒的,为了让作者:俊七公子能提供更多更好的作品,请您购买本书的VIP、或多多宣传本书和推荐,也是作者的一种另类支持！小说的未来,是需要您我共同的努力!",
+        "chapterTitle": "折翼_明月高悬：十八",
+        "chapterTitleSource": "html_title",
+        "chapterLength": 0,
+        "chapterExcerpt": "",
+        "nav": {
+          "nextUrl": "https://b.faloo.com/1207344_1272.html",
+          "prevUrl": "https://b.faloo.com/1207344_1270.html",
+          "nextProbe": "PAYWALL_BLOCKED(expected_block)"
+        },
+        "errorCode": "PAYWALL_BLOCKED",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 1242,
+        "detailProbeMs": 1738,
+        "chapterFetchMs": 214,
+        "chapterProbeMs": 22,
+        "navigationProbeMs": 139,
+        "totalMs": 3985
+      },
+      "failures": [
+        "目录提取失败（章节样本质量不足）",
+        "章节页正文提取失败（长度不足或未识别）",
+        "正文提取失败（简介页与章节页未同时达标）"
+      ],
+      "pass": false
+    },
+    {
+      "id": "shuqi",
+      "name": "书旗小说",
+      "detailUrl": "https://www.shuqi.com/book/5952440.html",
+      "chapterUrl": "https://t.shuqi.com/v2/query/5952440/944319.html",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.shuqi.com/book/5952440.html",
+        "chapterFinalUrl": "https://t.shuqi.com/v2/query/5952440/944319.html",
+        "tocSource": "detail_page",
+        "tocEntryCount": 30,
+        "tocSampleTitles": [
+          "1.001 守墓人",
+          "2.002 天塌了",
+          "3.003 家的传承",
+          "4.004 疯女赵颖",
+          "5.005 迟暮英雄"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 30,
+          "ratio": 1
+        },
+        "bookTitle": "单兵为王",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "“单兵为王”是作者七品的优质作品，书籍的主角是龙小七，您可以在书旗小说在线免费阅读《单兵为王》的全部内容。",
+        "chapterTitle": "战旗不倒_单兵为王(七品)",
+        "chapterTitleSource": "extractor",
+        "chapterLength": 2582,
+        "chapterExcerpt": "这是中部地区的一座小城市，即便说出名字也鲜少有人知道。小城的郊区有一个小小的陵园，周围杂草丛生，青砖围墙也残破不堪，略显凄凄艾艾圈着几十座坟。但是那些坟墓却修缮的整整齐齐，泥土是新鲜的，一根杂草都没有，与破落的围墙外形成鲜明的对比。所有的坟墓都没有墓碑，只有入口的守墓人砖房处歪歪斜斜的竖了一个小牌子：私人领地，进来就揍。“什么是朋友？他娘的，打不过的就是朋友！我一直教你们，可怎么就是教不会呢？记住，打不过就跟他交朋友，只要成了朋友，想怎么软刀子捅就怎么软刀子捅！”砖房里传出骂骂咧咧的训斥声。龙小七大马金刀的坐在自己",
+        "nav": {
+          "nextUrl": "https://t.shuqi.com/v2/query/5952440/944320.html",
+          "prevUrl": "",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 605,
+        "detailProbeMs": 49,
+        "chapterFetchMs": 677,
+        "chapterProbeMs": 83,
+        "navigationProbeMs": 314,
+        "totalMs": 1790
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "zhangyue",
+      "name": "掌阅小说",
+      "detailUrl": "https://ireader.com.cn/index.php?ca=Chapter.Content&bid=12821974&cid=1",
+      "chapterUrl": "https://ireader.com.cn/index.php?ca=Chapter.Content&bid=12821974&cid=7",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://ireader.com.cn/index.php?ca=Chapter.Content&bid=12821974&cid=1",
+        "chapterFinalUrl": "https://ireader.com.cn/index.php?ca=Chapter.Content&bid=12821974&cid=7",
+        "tocSource": "synthetic_query",
+        "tocEntryCount": 5,
+        "tocSampleTitles": [
+          "第7章",
+          "第8章",
+          "第9章",
+          "第10章",
+          "第11章"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 5,
+          "ratio": 1
+        },
+        "bookTitle": "大国之治：中国古代的治理智慧（英）",
+        "detailTitle": "",
+        "detailLength": 2406,
+        "detailExcerpt": "版权信息\n\n 书名：大国之治：中国古代的治理智慧（英）\n\n 作者：徐伟新\n\n 译者：李伟彬 张洁\n\n 出版社：外文出版社有限责任公司\n\n 出版时间：2021-12-01\n\n ISBN：9787119128658\n\n 本书由外文出版社有限责任公司授权掌阅科技电子版制作与发行\n\n 版权所有·侵权必究\n\n China has developed an extremely rich, systematic and complete, yet quite distinctive national governance sys",
+        "chapterTitle": "",
+        "chapterTitleSource": "none",
+        "chapterLength": 13420,
+        "chapterExcerpt": "I. The Harmony Between Man and Nature\n\n The harmony between man and nature is the highest cultural concept in ancient China. The relationship between man and nature is the motif of traditional Chinese culture, from which other ideas are derived. The idea of th",
+        "nav": {
+          "nextUrl": "https://ireader.com.cn/index.php?ca=Chapter.Content&bid=12821974&cid=8",
+          "prevUrl": "",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 270,
+        "detailProbeMs": 12,
+        "chapterFetchMs": 138,
+        "chapterProbeMs": 21,
+        "navigationProbeMs": 163,
+        "totalMs": 2083
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "tomato",
+      "name": "番茄小说",
+      "detailUrl": "https://fanqienovel.com/page/7247434833704518201",
+      "chapterUrl": "https://fanqienovel.com/reader/7247432399078818365",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://fanqienovel.com/page/7247434833704518201",
+        "chapterFinalUrl": "https://fanqienovel.com/reader/7247432399078818365",
+        "tocSource": "chapter_sequence",
+        "tocEntryCount": 2,
+        "tocSampleTitles": [
+          "第7247432399078819000章",
+          "第7247432399078818365章"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 2,
+          "ratio": 1
+        },
+        "bookTitle": "无级",
+        "detailTitle": "无级完整版在线",
+        "detailLength": 70,
+        "detailExcerpt": "番茄小说提供无级完整版在线免费阅读，精彩小说尽在番茄小说网。无级...番茄小说提供无级完整版在线免费阅读，精彩小说尽在番茄小说网。无级...",
+        "chapterTitle": "无级无级在线",
+        "chapterTitleSource": "extractor",
+        "chapterLength": 129,
+        "chapterExcerpt": "无级本章字数：103字更新时间：2023-06-22穿越异，凭角环巅峰............................…………………………………………………………………………………………………………………………………………",
+        "nav": {
+          "nextUrl": "https://fanqienovel.com/reader/7247432399078819000",
+          "prevUrl": "",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 533,
+        "detailProbeMs": 246,
+        "chapterFetchMs": 333,
+        "chapterProbeMs": 306,
+        "navigationProbeMs": 287,
+        "totalMs": 2527
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "qimao",
+      "name": "七猫小说",
+      "detailUrl": "https://www.qimao.com/shuku/2002970/",
+      "chapterUrl": "https://www.qimao.com/shuku/2002970-17470296060007/",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.qimao.com/shuku/2002970/",
+        "chapterFinalUrl": "https://www.qimao.com/shuku/2002970-17470296060007/",
+        "tocSource": "chapter_sequence",
+        "tocEntryCount": 3,
+        "tocSampleTitles": [
+          "第6章 不道歉！要解约？随便！雪倾城",
+          "第7章 现在流行养小鬼？雪倾城",
+          "第8章 明薇要被赶出家门？雪倾城"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 3,
+          "ratio": 1
+        },
+        "bookTitle": "穿书假千金，全网跪求我直播改命",
+        "detailTitle": "霍总你别急，夫人算命又上热搜了",
+        "detailLength": 2170,
+        "detailExcerpt": "“各位直播间的水友，今天最后一卦，算完收工。”蔡明薇对着摄像头优雅地捋了捋如瀑长发，修长指尖在键盘上敲出一串卦象。“ID‘清风明月'的朋友，你问姻缘是吧？”直播间右上角的数字不断跳动，最终定格在37万。弹幕如暴风雪般席卷屏幕，几乎看不清画面内容。【大师终于翻我牌子了！等了三小时！】【前排合影！薇薇姐今天这身汉服绝了！】【上次说我家猫三天内会回家的，第二天就在小区花园找到了！】蔡明薇唇角微翘，眼底闪过一丝不易察觉的紫芒。她盯着屏幕上显示的生辰八字，纤细的手指在桌面上轻轻敲击，眉头渐渐蹙起。“清风明月，你这段姻缘……”",
+        "chapterTitle": "第7章 现在流行养小鬼？雪倾城",
+        "chapterTitleSource": "extractor",
+        "chapterLength": 2049,
+        "chapterExcerpt": "林小雨猛地睁大眼睛。“你怎么知道？！”她声音发抖。“那是我奶奶留下的，我觉得挺有纪念意义就带过来了……”蔡明薇冷笑一声。“问题就出在镜子上。”直播间瞬间安静了一秒，随后弹幕疯狂刷屏：「镜子招鬼？真的假的？」「卧槽细思极恐！」「老物件真的不能乱拿！」林小雨脸色煞白，结结巴巴道：“可、可那是我奶奶的东西啊……”“你奶奶生前是不是很喜欢照镜子？”蔡明薇语气淡淡。“尤其是晚上？”林小雨呆住了，显然被说中了。弹幕：「？？？信息量好大！」蔡明薇没等她回答，直接道：“今晚回去后，用红布把镜子包起来，明天中午12点整，拿到十字路口",
+        "nav": {
+          "nextUrl": "https://www.qimao.com/shuku/2002970-17470296060008/",
+          "prevUrl": "https://www.qimao.com/shuku/2002970-17470296060006/",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 285,
+        "detailProbeMs": 126,
+        "chapterFetchMs": 111,
+        "chapterProbeMs": 62,
+        "navigationProbeMs": 156,
+        "totalMs": 1321
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "qd_girls",
+      "name": "起点女生网",
+      "detailUrl": "https://m.qdmm.com/chapter/1013476514/445938628/",
+      "chapterUrl": "https://m.qdmm.com/chapter/1013476514/445938628/",
+      "checks": {
+        "basicInfo": false,
+        "toc": false,
+        "detailContent": false,
+        "chapterContent": false,
+        "content": false,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://m.qdmm.com/chapter/1013476514/445938628/",
+        "chapterFinalUrl": "https://m.qdmm.com/chapter/1013476514/445938628/",
+        "tocSource": "none",
+        "tocEntryCount": 0,
+        "tocSampleTitles": [],
+        "tocQuality": {
+          "chapterLikeCount": 0,
+          "ratio": 0
+        },
+        "bookTitle": "华娱之疯狂年代",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "",
+        "chapterTitle": "",
+        "chapterTitleSource": "none",
+        "chapterLength": 0,
+        "chapterExcerpt": "",
+        "nav": {
+          "nextUrl": "https://m.qdmm.com/chapter/1013476514/445938629/",
+          "prevUrl": "",
+          "nextProbe": "ANTI_BOT_OR_BLOCKED(expected_block)"
+        },
+        "errorCode": "ANTI_BOT_OR_BLOCKED",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 230,
+        "detailProbeMs": 5,
+        "chapterFetchMs": 213,
+        "chapterProbeMs": 4,
+        "navigationProbeMs": 135,
+        "totalMs": 991
+      },
+      "failures": [
+        "基本信息提取失败（标题/URL）",
+        "目录提取失败（章节样本质量不足）",
+        "简介页正文提取失败（长度不足或未识别）",
+        "章节页正文提取失败（长度不足或未识别）",
+        "正文提取失败（简介页与章节页未同时达标）"
+      ],
+      "pass": false
+    },
+    {
+      "id": "readnovel",
+      "name": "小说阅读网",
+      "detailUrl": "https://www.readnovel.com/book/20190410708174904",
+      "chapterUrl": "https://www.readnovel.com/chapter/20190410708174904/54988595274422615",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.readnovel.com/book/20190410708174904",
+        "chapterFinalUrl": "https://www.readnovel.com/chapter/20190410708174904/54988595274422615",
+        "tocSource": "detail_page",
+        "tocEntryCount": 302,
+        "tocSampleTitles": [
+          "第418章 最后的一年",
+          "第419章 四天宝寺",
+          "第420章 白石VS小金",
+          "第421章 与偶像的见面",
+          "第422章 再临合宿"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 302,
+          "ratio": 1
+        },
+        "bookTitle": "网王之重生不二",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "《网王之重生不二》是贤胖胖创作的轻小说小说。重生网王世界，成为不二周助。执掌青学，完成全国三连霸！U17，将天才之名响彻世界！",
+        "chapterTitle": "第五十章 狼狈的迹部_《网王之重生不二》",
+        "chapterTitleSource": "extractor",
+        "chapterLength": 2290,
+        "chapterExcerpt": "第五十章 狼狈的迹部\n成功的挺进决赛，青学的众人都有些高兴。　　一路说说笑笑，众人来到了位于另一边的球场。　　只是，当他们来到冰帝跟立海大的比赛场地后，所有人都楞了一下。　　立海大2:0冰帝。　　比赛居然才进入单打三的环节吗？　　众人有些不解，但是看到单场的比分后，却又恍然大悟。　　双打一和双打二，俩场比赛均是立海大7:5获胜。　　看来是经过了相当激烈的苦战。　　更让众人惊讶的，是冰帝出场的单打三，居然是部长迹部景吾，而立海大则是副部长，真田弦一郎。　　这样的排兵布阵显然不合常理。　　不二将目光看向优雅的坐在教练席",
+        "nav": {
+          "nextUrl": "https://www.readnovel.com/chapter/20190410708174904/55001576427193070",
+          "prevUrl": "https://www.readnovel.com/chapter/20190410708174904/54977587692675109",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 1003,
+        "detailProbeMs": 153,
+        "chapterFetchMs": 340,
+        "chapterProbeMs": 63,
+        "navigationProbeMs": 425,
+        "totalMs": 2134
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "qd_qqreader",
+      "name": "QQ 阅读（PC 站）",
+      "detailUrl": "https://weread.qq.com/web/bookDetail/ab432c90813ab820bg019b80",
+      "chapterUrl": "https://weread.qq.com/web/reader/38e32ca071645ea538e6b96",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://weread.qq.com/web/bookDetail/ab432c90813ab820bg019b80",
+        "chapterFinalUrl": "https://weread.qq.com/web/reader/38e32ca071645ea538e6b96",
+        "tocSource": "chapter_page",
+        "tocEntryCount": 56,
+        "tocSampleTitles": [
+          "第1章",
+          "第2章",
+          "第3章",
+          "第4章",
+          "第5章"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 53,
+          "ratio": 1
+        },
+        "bookTitle": "漫长的告别",
+        "detailTitle": "漫长的告别",
+        "detailLength": 196,
+        "detailExcerpt": "漫长的告别雷蒙德·钱德勒\n 一次醉鬼与侦探的偶遇， 一场牵扯出命案的告别， 一连串谋杀与男人之间的友谊， 说一声再见，就是死去一点点。 纽约上流社会发生一起人人意欲掩盖的谋杀案，唯独马洛一意孤行、意欲追究到底，查出真正的凶手！ 黑道白道、政界警界上演着一幕幕纠缠交错、污浊堕落的戏码。 随着真相的逼近，马洛意识到，从被卷入这场阴谋的那一刻起，他就在与这场对友情、爱情的双重背叛做着漫长的告别。",
+        "chapterTitle": "漫长的告别（读客三个圈经典文库） - 雷蒙德·钱德勒",
+        "chapterTitleSource": "html_title",
+        "chapterLength": 0,
+        "chapterExcerpt": "",
+        "nav": {
+          "nextUrl": "",
+          "prevUrl": "",
+          "nextProbe": "toc_adjacent_ok"
+        },
+        "errorCode": "AUTH_REQUIRED",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 360,
+        "detailProbeMs": 157,
+        "chapterFetchMs": 412,
+        "chapterProbeMs": 0,
+        "navigationProbeMs": 0,
+        "totalMs": 1555
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "motie",
+      "name": "磨铁中文网",
+      "detailUrl": "https://www.laikan.com/book/89491",
+      "chapterUrl": "https://www.laikan.com/chapter/89491/1",
+      "checks": {
+        "basicInfo": false,
+        "toc": false,
+        "detailContent": false,
+        "chapterContent": false,
+        "content": false,
+        "navigation": false,
+        "paywallOrAuth": false
+      },
+      "evidence": {
+        "detailFinalUrl": "",
+        "chapterFinalUrl": "https://www.laikan.com/chapter/89491/1",
+        "tocSource": "none",
+        "tocEntryCount": 0,
+        "tocSampleTitles": [],
+        "tocQuality": {
+          "chapterLikeCount": 0,
+          "ratio": 0
+        },
+        "bookTitle": "慧眼无双",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "",
+        "chapterTitle": "",
+        "chapterTitleSource": "none",
+        "chapterLength": 0,
+        "chapterExcerpt": "",
+        "nav": {
+          "nextUrl": "https://www.laikan.com/chapter/89491/2",
+          "prevUrl": "",
+          "nextProbe": "NO_MAIN_CONTENT"
+        },
+        "errorCode": "NO_MAIN_CONTENT",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 0,
+        "detailProbeMs": 0,
+        "chapterFetchMs": 980,
+        "chapterProbeMs": 16,
+        "navigationProbeMs": 485,
+        "totalMs": 10786
+      },
+      "failures": [
+        "目录页获取失败: Command failed: curl -k -L --max-time 18 -A Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 -H Accept-Language: zh-CN,zh;q=0.9,en;q=0.8 https://www.laikan.com/book/89491\n  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0\r  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0\ncurl: (16) Error in the HTTP2 framing layer\n",
+        "章节页提取失败: NO_MAIN_CONTENT",
+        "下一章跳转失败: NO_MAIN_CONTENT",
+        "基本信息提取失败（标题/URL）",
+        "目录提取失败（章节样本质量不足）",
+        "简介页正文提取失败（长度不足或未识别）",
+        "章节页正文提取失败（长度不足或未识别）",
+        "正文提取失败（简介页与章节页未同时达标）",
+        "章节跳转验证失败"
+      ],
+      "pass": false
+    },
+    {
+      "id": "tadu",
+      "name": "塔读文学",
+      "detailUrl": "https://www.tadu.com/book/catalogue/1040788",
+      "chapterUrl": "https://www.tadu.com/book/1040788/102432680",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.tadu.com/book/catalogue/1040788",
+        "chapterFinalUrl": "https://www.tadu.com/book/1040788/102432680",
+        "tocSource": "detail_page",
+        "tocEntryCount": 116,
+        "tocSampleTitles": [
+          "帮助反馈",
+          "第1章 陈家二房",
+          "第2章 未启蒙的识字儿",
+          "第3章 城中书馆",
+          "第4章 惊世之文"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 104,
+          "ratio": 0.904
+        },
+        "bookTitle": "寒门读书郎",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "寒门读书郎最新章节情节构思巧妙，跌宕起伏,扣人心弦,情节与文笔俱佳的历史架空小说。塔读小说提供寒门读书郎最新章节全文,全集,电子书,大结局在线免费无弹窗阅读。",
+        "chapterTitle": "寒门读书郎_第4章：灭魂棺收残魂_历史架空_大风歌",
+        "chapterTitleSource": "extractor",
+        "chapterLength": 2451,
+        "chapterExcerpt": "花开两朵，各表一枝。　　且说陈思源进入了钟氏族学馆的事，自然瞒不住陈千山一家。　　他们一家，原以为陈思源一家说陈思源要去参加县试，是说着玩的。　　可当得知陈思源已进入钟氏学馆，且早已报上了名时，他们一家却傻眼了。　　但他们仍然存有侥幸心理：这陈思源连学馆门都没进入的娃娃，怎么可能考得过县试？　　塔读小说，无广>告^在线免。费阅&读！　　然而，刘氏的父亲兄长，昨日竟然破天荒的降临到刘氏家中，使他的幻想彻底破灭了，她此时，才知道陈思源有多么的妖孽！　　前文已说到，这刘氏为庶出，父兄皆不待见。　　因此，虽说刘氏为大族，但",
+        "nav": {
+          "nextUrl": "https://www.tadu.com/book/1040788/102306858",
+          "prevUrl": "https://www.tadu.com/book/1040788/102305688",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 204,
+        "detailProbeMs": 230,
+        "chapterFetchMs": 66,
+        "chapterProbeMs": 191,
+        "navigationProbeMs": 388,
+        "totalMs": 1155
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "free_biquge",
+      "name": "笔趣阁（典型免费站）",
+      "detailUrl": "https://www.bqudu.com/book/5rf8/",
+      "chapterUrl": "https://www.bqudu.com/book/5rf8/8.html",
+      "checks": {
+        "basicInfo": true,
+        "toc": true,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": true,
+        "paywallOrAuth": true
+      },
+      "evidence": {
+        "detailFinalUrl": "https://www.bqudu.com/book/5rf8/",
+        "chapterFinalUrl": "https://www.bqudu.com/book/5rf8/8.html",
+        "tocSource": "detail_page",
+        "tocEntryCount": 100,
+        "tocSampleTitles": [
+          "第一章 陨落的天才",
+          "第二章 斗气大陆",
+          "第三章 客人",
+          "第四章 云岚宗",
+          "第五章 聚气散"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 99,
+          "ratio": 0.99
+        },
+        "bookTitle": "斗破苍穹",
+        "detailTitle": "",
+        "detailLength": 0,
+        "detailExcerpt": "这里是属于斗气的世界，没有花俏艳丽的魔法，有的，仅仅是繁衍到巅峰的斗气！新书等级制度：斗者，斗师，大斗师，斗灵，斗王，斗皇，斗宗，斗尊，斗圣，斗帝。笔趣读免费快速提供了提供斗破苍穹无弹窗最新清爽干净的文字章节在线阅读。斗破苍穹无弹窗最新章节由网友天蚕土豆提供,《斗破苍穹》情节跌宕起伏、扣人心弦,是一本情节与文笔俱佳的好书。",
+        "chapterTitle": "第一章 陨落的天才",
+        "chapterTitleSource": "toc_match",
+        "chapterLength": 1539,
+        "chapterExcerpt": "天蚕土豆提示您：看后求收藏（笔趣读bqudu.com），接着再看更方便。“斗之力，三段”望着测验魔石碑上面闪亮得甚至有些刺眼的五个大字，少年面无表情，唇角有着一抹自嘲，紧握的手掌，因为大力，而导致略微尖锐的指甲深深的刺进了掌心之中，带来一阵阵钻心的疼痛“萧炎，斗之力，三段级别：低级”测验魔石碑之旁，一位中年男子，看了一眼碑上所显示出来的信息，语气漠然的将之公布了出来中年男子话刚刚脱口，便是不出意外的在人头汹涌的广场上带起了一阵嘲讽的搔动。“三段嘿嘿，果然不出我所料，这个“天才”这一年又是在原地踏步”“哎，这废物真是",
+        "nav": {
+          "nextUrl": "https://www.bqudu.com/book/5rf8/j.html",
+          "prevUrl": "https://www.bqudu.com/book/w7te/",
+          "nextProbe": "ok"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 1743,
+        "detailProbeMs": 196,
+        "chapterFetchMs": 210,
+        "chapterProbeMs": 23,
+        "navigationProbeMs": 233,
+        "totalMs": 2436
+      },
+      "failures": [],
+      "pass": true
+    }
+  ]
+}

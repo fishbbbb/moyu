@@ -1,0 +1,822 @@
+sites:
+  - id: qidian
+    name: 起点中文网
+    domain: book.qidian.com
+    detailUrlSample: "https://book.qidian.com/info/1040783054/"
+    chapterUrlSample: "https://read.qidian.com/chapter/ex-xXw912HwCpOPIBxLXdQ2/H487g_cECzVMs5iq0oQwLQ2/"
+    sampleInfo:
+      workTitle: "《全职法师之青衣剑仙》"
+      detailPageLabel: "作品信息页 / 目录入口页"
+      chapterLabel: "第261章：一剑蜕凡尘"
+      sampleStatus: "已替换为真实章节链接；外部自动探测可能受站点风控影响"
+      notes:
+        - "章节页来自起点公开索引结果，可用于人工可达性与解析回归。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: true
+    siteStructure:
+      titleSelectors:
+        - "h1.book-name"
+        - 'meta[property=\"og:title\"]'
+        - "title"
+      introSelectors:
+        - ".book-intro"
+        - 'meta[property=\"og:description\"]'
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#volume-all"
+          - ".volume-list"
+          - ".catalog-content"
+          - "main"
+        linkSelector: "a[href]"
+        chapterTextHeuristics:
+          - "文本中含有“第…章”且长度 < 40"
+          - "短标题（<= 20 字）视为章节候选"
+      chapterNavType:
+        - "锚文本“下一章/上一章”"
+        - "URL 路径中含章节 ID，数值递增"
+      paginationNotes:
+        - "部分章节可能存在分页提示“1/2、下一页”等，当前版本会触发 PAGINATION_DETECTED；优先选单页阅读链接作为样例。"
+      dynamicRendering: false
+      notes:
+        - "作品信息页 book.qidian.com/info/* 通常左侧为封面，右侧为书名/作者/简介，下方为“目录”模块，目录内是 ul/li + a[href] 结构，易被 detectTOC 命中。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "ANTI_BOT_OR_BLOCKED"
+        - "EXTRACTION_TIMEOUT"
+      manualSteps:
+        - "在采集窗口输入 detailUrlSample，点击“打开网页”后使用“解析目录”；确认章节数与站点目录接近。"
+        - "使用 chapterUrlSample 测试“提取当前页”和阅读时按需拉取正文。"
+
+  - id: jjwxc
+    name: 晋江文学城
+    domain: www.jjwxc.net
+    detailUrlSample: "http://www.jjwxc.net/onebook.php?novelid=9338905"
+    chapterUrlSample: "https://www.jjwxc.net/onebook.php?chapterid=1&novelid=9338905"
+    sampleInfo:
+      workTitle: "《你的雪人能活多久》"
+      detailPageLabel: "作品简介页 / 目录页"
+      chapterLabel: "第1章"
+      sampleStatus: "已切换为第一章样例，降低付费章节/后段风控干扰"
+      notes:
+        - "该样例同时出现在现有 PRD/调研文档中，适合作为晋江回归测试基准。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: true
+    siteStructure:
+      titleSelectors:
+        - "h1"
+        - 'meta[property=\"og:title\"]'
+        - "title"
+      introSelectors:
+        - "#novelintro"
+        - ".novelintro"
+        - 'meta[property=\"og:description\"]'
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#oneboolt"
+          - ".novelbody"
+          - "body"
+        linkSelector: "a[href*=\"onebook.php\"]"
+        chapterTextHeuristics:
+          - "链接文本较短（<= 20 字）且包含章节序号"
+          - "onebook.php?chapterid=*&novelid=* 归并为同一作品目录"
+      chapterNavType:
+        - "章节页顶部/底部存在“上一页/下一页/返回目录”等链接"
+        - "chapterid 查询参数单调递增/递减"
+      paginationNotes:
+        - "章节页可能出现“1/2、下一页”等分页提示，但 WebContentExtractor 已对 jjwxc onebook.php 特判忽略分页误判。"
+      dynamicRendering: false
+      notes:
+        - "desktop/electron/main.ts 已内置 jjwxc onebook.php adapter，会从所有 onebook.php?novelid=...&chapterid=... 链接中聚合章节并去重。"
+        - "付费章节需要登录+购买，否则正文提取可能返回 AUTH_REQUIRED 或 PAYWALL_BLOCKED。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "AUTH_REQUIRED"
+        - "PAYWALL_BLOCKED"
+      manualSteps:
+        - "使用 detailUrlSample 测试“解析目录”，确认目录条数与站点实际章节数接近。"
+        - "在浏览器中登录并购买至少一章后，再用相应 chapterUrlSample 测试“提取当前页”。"
+
+  - id: zongheng
+    name: 纵横中文网
+    domain: www.zongheng.com
+    detailUrlSample: "https://huayu.zongheng.com/showchapter/1450262.html"
+    chapterUrlSample: "https://m.zongheng.com/chapter/1450262/91755869"
+    sampleInfo:
+      workTitle: "《抢我婚约嫁太子？我携孕肚嫁皇帝》"
+      detailPageLabel: "目录页（可直接抓章节列表）"
+      chapterLabel: "第1章 这贞洁我不在乎了！"
+      sampleStatus: "已确认真实作品页与真实章节页（移动端）"
+      notes:
+        - "作者：缓缓归。"
+        - "该站点章节直链在移动端更稳定（`m.zongheng.com/chapter/{bookId}/{chapterId}`）。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: true
+    siteStructure:
+      titleSelectors:
+        - "h1"
+        - ".book-name"
+        - "title"
+      introSelectors:
+        - ".book-dec"
+        - ".book-intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#chapterList"
+          - ".chapter-list"
+          - ".directory_con"
+        linkSelector: "a[href*=\"/chapter/\"]"
+        chapterTextHeuristics:
+          - "文本包含“第…章/卷”"
+          - "短标题 + 相同 bookId 的章节 URL"
+      chapterNavType:
+        - "章节页顶部/底部“上一章/下一章”按钮"
+        - "路径 /chapter/{bookId}/{chapterId}.html 数值跳转"
+      paginationNotes:
+        - "常见为单页章节，少数作品有“下一页”分页按钮，会被 detectPaginationHint 捕获。"
+      dynamicRendering: false
+      notes:
+        - "目录页通常是“全部章节”按钮展开后的列表，ul/li + a[href] 容易被 detectTOC 命中。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes: []
+      manualSteps:
+        - "先访问 detailUrlSample，在网页端点击“全部章节”展开，再在采集窗口里执行“解析目录”。"
+
+  - id: hongxiu
+    name: 红袖读书（红袖添香）
+    domain: www.hongxiu.com
+    detailUrlSample: "https://m.hongxiu.com/chapterlist/13259576105794804"
+    chapterUrlSample: "https://m.hongxiu.com/chapter/13259576105794804/35665597732176681"
+    sampleInfo:
+      workTitle: "《取经之后三千年》"
+      detailPageLabel: "目录页（移动端）"
+      chapterLabel: "第七章：诡谋渐显，风云暗涌。"
+      sampleStatus: "已确认真实作品页与真实章节页（移动端）"
+      notes:
+        - "作者：王余欢。"
+        - "移动端章节页可直接获取正文与“加载下一章”链接，适合结构化抽取自测。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - "h1.book-name"
+        - 'meta[property=\"og:title\"]'
+        - "title"
+      introSelectors:
+        - ".book-intro"
+        - ".book-info-detail"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - ".volume"
+          - ".catalog-list"
+          - "main"
+        linkSelector: "a[href*=\"/chapter/\"]"
+        chapterTextHeuristics:
+          - "章节名短于 32 字"
+      chapterNavType:
+        - "章节页内“上一章/下一章”按钮"
+        - "URL /chapter/{bookId}/{chapterId} 数值递增"
+      paginationNotes:
+        - "通常为单页；若出现金币/VIP 章节，会在正文处显示付费提示，可能触发 PAYWALL_BLOCKED。"
+      dynamicRendering: false
+      notes:
+        - "目录页采用列表 + a[href]，结构规整，容易被 detectTOC 抓到。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "PAYWALL_BLOCKED"
+      manualSteps:
+        - "优先选免费章节作为 chapterUrlSample，以避免付费拦截影响自测。"
+
+  - id: xxsy
+    name: 潇湘书院
+    domain: www.xxsy.net
+    detailUrlSample: "https://www.xxsypro.com/book/8263527304935303"
+    chapterUrlSample: "https://www.xxsy.net/chapter/8263527304935303/22194324903768035"
+    sampleInfo:
+      workTitle: "《恰似寒光遇骄阳》"
+      detailPageLabel: "作品目录页（PC）"
+      chapterLabel: "第1章 重生"
+      sampleStatus: "目录用 xxsypro；正文章节用 xxsy.net 经典版页面（首屏含正文，便于静态抓取）"
+      notes:
+        - "作者：囧囧有妖。"
+        - "搜索结果可确认最新公共章节为“第326章 前来拜寿”。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".bookname h1"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".bookintro"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#chapterlist"
+          - ".chapter-list"
+          - ".mulu"
+        linkSelector: "a[href*=\"/chapter/\"]"
+        chapterTextHeuristics:
+          - "包含“第…章”、或短标题"
+      chapterNavType:
+        - "章节页底部上一章/下一章链接"
+      paginationNotes:
+        - "部分章节有分页“下一页”，需要避开或在后续版本扩展分页容错。"
+      dynamicRendering: false
+      notes:
+        - "目录列表多为 ul/li + a 结构，符合 detectTOC 的 list/table 规则。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "PAGINATION_DETECTED"
+      manualSteps:
+        - "若仅用 xxsypro 章节 SPA 导致无正文，可配合 xxsy.net 同书章节直链做静态回归。"
+        - "选择无分页的章节 sample，或在遇到分页错误码时记下 URL 供后续算法迭代。"
+
+  - id: yq
+    name: 云起书院
+    domain: yunqi.qq.com
+    detailUrlSample: "http://yunqi.qq.com/bk/ns/20304305.html"
+    chapterUrlSample: "https://yunqi.qq.com/read/20304305/1"
+    sampleInfo:
+      workTitle: "《恰似寒光遇骄阳》"
+      detailPageLabel: "作品详情页"
+      chapterLabel: "第1章 重生"
+      sampleStatus: "PC 章节页首屏含正文；移动端同书部分章节易为壳页面"
+      notes:
+        - "搜索结果同时返回了章节目录页与具体章节页。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".bookName"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".bookInfo"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#chapter"
+          - ".chapter-list"
+        linkSelector: "a[href]"
+        chapterTextHeuristics:
+          - "文本短、含章节序号"
+      chapterNavType:
+        - "章节页顶部/底部“上一页/下一页/下一章”等链接"
+      paginationNotes:
+        - "老作品可能有分页。"
+      dynamicRendering: false
+      notes:
+        - "与阅文旗下站点结构类似，TOC/章节页抽取整体兼容度较好。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes: []
+      manualSteps:
+        - "自测优先使用 yunqi.qq.com/read/{bookId}/{seq} PC 章节页以保证首屏正文。"
+        - "在作品页中点击“目录”展开后再进行“解析目录”自测。"
+
+  - id: seventeenk
+    name: 17K 小说网
+    domain: www.17k.com
+    detailUrlSample: "https://www.17k.com/chapter/3473586/46910372.html"
+    chapterUrlSample: "https://www.17k.com/chapter/3473586/46910372.html"
+    sampleInfo:
+      workTitle: "《挣扎着向阳》"
+      detailPageLabel: "章节页（搜索引擎可稳定索引）"
+      chapterLabel: "第一章 大梦初醒"
+      sampleStatus: "已确认真实章节页（作为 17K 站点样例）；作品详情页直链后续可补"
+      notes:
+        - "作者：猫戏人生。"
+        - "17K 对作品详情页抓取在当前网络环境下不稳定，章节页更适合作为可回归的稳定样例。"
+    verifiedLevel: "chapter_only"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".Info h1"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".intro"
+        - ".Info .p"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#chapterList"
+          - ".Volume"
+        linkSelector: "a[href*=\"/chapter/\"]"
+        chapterTextHeuristics:
+          - "短标题或含“第…章”"
+      chapterNavType:
+        - "章节页顶部/底部上一章/下一章链接"
+      paginationNotes:
+        - "部分 VIP 章节需登录后订阅。"
+      dynamicRendering: false
+      notes:
+        - "目录列表通常在“全部章节”页，需在采集前确保打开该页。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "AUTH_REQUIRED"
+        - "PAYWALL_BLOCKED"
+
+  - id: faloo
+    name: 飞卢中文网
+    domain: b.faloo.com
+    detailUrlSample: "http://b.faloo.com/html_1207_1207344/"
+    chapterUrlSample: "https://b.faloo.com/1207344_1271.html"
+    sampleInfo:
+      workTitle: "《折翼》"
+      detailPageLabel: "作品详情页"
+      chapterLabel: "明月高悬：十八"
+      sampleStatus: "已确认真实作品页与真实章节页"
+      notes:
+        - "作者：俊七公子。"
+        - "该作品适合测试飞卢的分页/分卷章节形态。"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - "h1"
+        - ".title"
+        - "title"
+      introSelectors:
+        - ".work_intro"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#chapterlist"
+          - ".chapterList"
+        linkSelector: "a[href*=\"/p/\"]"
+        chapterTextHeuristics:
+          - "标题短小，含数字"
+      chapterNavType:
+        - "章节页内部有上一页/下一页按钮"
+      paginationNotes:
+        - "章节往往被分页为多个小页；当前版本可能因 PAGINATION_DETECTED 拒绝正文提取。"
+      dynamicRendering: false
+      notes:
+        - "适合作为分页站点的压力测试样本。"
+    selfTestNotes:
+      recommendedMode: "article"
+      expectedFailureCodes:
+        - "PAGINATION_DETECTED"
+
+  - id: shuqi
+    name: 书旗小说
+    domain: www.shuqi.com
+    detailUrlSample: "https://www.shuqi.com/book/5952440.html"
+    chapterUrlSample: "https://t.shuqi.com/v2/query/5952440/944319.html"
+    sampleInfo:
+      workTitle: "《单兵为王》"
+      detailPageLabel: "作品详情页"
+      chapterLabel: "第1章 001 守墓人"
+      sampleStatus: "已确认真实作品页与真实章节页"
+      notes:
+        - "作者：七品。"
+        - "书旗正文页常见为 `t.shuqi.com/v2/query/{bookId}/{chapterId}.html`。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".book-title"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".book-intro"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - ".chapter-list"
+          - ".mulu"
+        linkSelector: "a[href*=\"/chapter/\"]"
+      chapterNavType:
+        - "章节页“上一章/下一章”按钮"
+      paginationNotes:
+        - "移动端页可能依赖前端渲染，优先使用 PC 端 URL。"
+      dynamicRendering: true
+      notes:
+        - "若 detectTOC 在单次 HTML 抓取中拿不到完整目录，可多次刷新或使用“tocUrlCandidate”跳转验证。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "EXTRACTION_TIMEOUT"
+        - "DOM_TOO_LARGE"
+
+  - id: zhangyue
+    name: 掌阅小说
+    domain: www.ireader.com
+    detailUrlSample: "https://ireader.com.cn/index.php?ca=Chapter.Content&bid=12821974&cid=1"
+    chapterUrlSample: "https://ireader.com.cn/index.php?ca=Chapter.Content&bid=12821974&cid=7"
+    sampleInfo:
+      workTitle: "《大国之治：中国古代的治理智慧（英）》"
+      detailPageLabel: "章节页（掌阅书城公开直链）"
+      chapterLabel: "cid=7（正文章节）"
+      sampleStatus: "已确认真实章节直链（可稳定访问）；cid=1 为版权/前置页，不再用于正文抽取样例"
+      notes:
+        - "该站点可稳定索引/访问的直链形态为 `https://ireader.com.cn/index.php?ca=Chapter.Content&bid={bid}&cid={cid}`。"
+        - "原创站 `yc.ireader.com.cn` 的章节直链在搜索与抓取层面不稳定，因此切换到书城直链做回归样例。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".bookTitle"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".intro"
+        - ".bookIntro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#chapterList"
+          - ".chapterList"
+        linkSelector: "a[href*=\"ChapterContent\"]"
+      chapterNavType:
+        - "章节页通过 cid 参数递增"
+      paginationNotes:
+        - "VIP 章节需登录订阅；可能触发 AUTH_REQUIRED / PAYWALL_BLOCKED。"
+      dynamicRendering: false
+      notes:
+        - "目录与章节接口参数化明显，适合测试“URL 数值增量 + query 参数归一化”逻辑。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "AUTH_REQUIRED"
+        - "PAYWALL_BLOCKED"
+
+  - id: tomato
+    name: 番茄小说
+    domain: fanqienovel.com
+    detailUrlSample: "https://fanqienovel.com/page/7247434833704518201"
+    chapterUrlSample: "https://fanqienovel.com/reader/7247432399078818365"
+    sampleInfo:
+      workTitle: "《无级》"
+      detailPageLabel: "作品首页 / 简介页"
+      chapterLabel: "无级（唯一章 / 作品同名章）"
+      sampleStatus: "已确认真实作品页与真实章节页"
+      notes:
+        - "作者：无恋心。"
+        - "该作品很短，适合做“动态站点可访问性/错误码”冒烟测试。"
+        - "注意：番茄常见字体/内容混淆，可能触发 `FONT_OBFUSCATED`。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - "h1"
+        - ".title"
+        - "title"
+      introSelectors:
+        - ".desc"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - ".chapter-list"
+          - ".catalog"
+        linkSelector: "a[href*=\"/reader/\"]"
+      chapterNavType:
+        - "前端应用式 reader 页，URL 中带 bookId + chapter 序号"
+      paginationNotes:
+        - "大量内容依赖前端渲染和接口请求；若静态 HTML 不含章节列表，detectTOC 可能只得到少量 entries 或为空。"
+      dynamicRendering: true
+      notes:
+        - "适合测试 BrowserBridge.triggerLazyLoad 和 DOM_TOO_LARGE/EXTRACTION_TIMEOUT 容错。"
+    selfTestNotes:
+      recommendedMode: "article"
+      expectedFailureCodes:
+        - "EXTRACTION_TIMEOUT"
+        - "DOM_TOO_LARGE"
+
+  - id: qimao
+    name: 七猫小说
+    domain: www.qimao.com
+    detailUrlSample: "https://www.qimao.com/shuku/2002970/"
+    chapterUrlSample: "https://www.qimao.com/shuku/2002970-17470296060007/"
+    sampleInfo:
+      workTitle: "《穿书假千金，全网跪求我直播改命》"
+      detailPageLabel: "作品详情页"
+      chapterLabel: "第7章 现在流行养小鬼？"
+      sampleStatus: "已确认真实作品页与真实章节页"
+      notes:
+        - "作者：雪倾城。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".book-name"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".book-intro"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - ".chapter-list"
+          - ".mulu"
+        linkSelector: "a[href*=\"shuchapter\"]"
+      chapterNavType:
+        - "章节页内上一章/下一章按钮"
+      paginationNotes:
+        - "少数章节为付费/VIP。"
+      dynamicRendering: true
+      notes:
+        - "页面大量前端渲染，适合测试 lazy-load 与登录态保护。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "AUTH_REQUIRED"
+        - "PAYWALL_BLOCKED"
+
+  - id: qd_girls
+    name: 起点女生网
+    domain: www.qdmm.com
+    detailUrlSample: "https://m.qdmm.com/chapter/1013476514/445938628/"
+    chapterUrlSample: "https://m.qdmm.com/chapter/1013476514/445938628/"
+    sampleInfo:
+      workTitle: "《华娱之疯狂年代》"
+      detailPageLabel: "当前已确认真实章节页（移动端）"
+      chapterLabel: "第一百七十三章 宝马车、大咪姐，春节要来了（第三更）"
+      sampleStatus: "已确认真实章节页；作品首页搜索结果未稳定返回，暂以章节页代替"
+      notes:
+        - "作者：白白嫩嫩鱼。"
+    verifiedLevel: "chapter_only"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - "h1"
+        - ".book-name"
+        - "title"
+      introSelectors:
+        - ".intro"
+        - ".book-intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "#chapterList"
+          - ".chapter-list"
+        linkSelector: "a[href*=\"/chapter/\"]"
+      chapterNavType:
+        - "与起点男频站类似的上一章/下一章结构"
+      paginationNotes:
+        - "部分章节为 VIP。"
+      dynamicRendering: false
+      notes:
+        - "可复用对起点 info/目录/章节页的多数抽取规则。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "PAYWALL_BLOCKED"
+
+  - id: readnovel
+    name: 小说阅读网
+    domain: www.readnovel.com
+    detailUrlSample: "https://www.readnovel.com/book/20190410708174904"
+    chapterUrlSample: "https://www.readnovel.com/chapter/20190410708174904/54988595274422615"
+    sampleInfo:
+      workTitle: "《网王之重生不二》"
+      detailPageLabel: "作品详情页"
+      chapterLabel: "第五十章 狼狈的迹部"
+      sampleStatus: "已确认真实作品页与真实章节页"
+      notes:
+        - "作者：贤胖胖。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".book-name"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".book-intro"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - ".volume"
+          - ".catalog"
+        linkSelector: "a[href*=\"/chapter/\"]"
+      chapterNavType:
+        - "章节页内上一章/下一章、URL 中 bookId + chapter 序号"
+      paginationNotes:
+        - "少数章节分页。"
+      dynamicRendering: false
+      notes:
+        - "与阅文系其他站点类似，可验证通用 TOC 规则的复用性。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes: []
+
+  - id: qd_qqreader
+    name: QQ 阅读（PC 站）
+    domain: weread.qq.com
+    detailUrlSample: "https://weread.qq.com/web/bookDetail/ab432c90813ab820bg019b80"
+    chapterUrlSample: "https://weread.qq.com/web/reader/38e32ca071645ea538e6b96"
+    sampleInfo:
+      workTitle: "《漫长的告别》"
+      detailPageLabel: "作品详情页"
+      chapterLabel: "web reader（试读/需登录）"
+      sampleStatus: "已确认真实作品页与 reader 页（可能需要登录/会员）"
+      notes:
+        - "作者：雷蒙德·钱德勒。"
+        - "微信读书 `web/reader/*` 页面可用于测试登录态/反爬提示与错误码映射。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: true
+    siteStructure:
+      titleSelectors:
+        - ".bookInfo_title"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".bookInfo_intro"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - ".chapterList"
+          - ".catalog"
+        linkSelector: "a[href]"
+      chapterNavType:
+        - "reader 页高度前端化，章节切换多由 JS 控制，URL 可能只部分反映当前章节。"
+      paginationNotes:
+        - "强登录态 + 深度前端渲染，不保证当前抽取器一定能直接读取到正文。"
+      dynamicRendering: true
+      notes:
+        - "适合作为“难站点”样本，主要用于观察 AUTH_REQUIRED / ANTI_BOT_OR_BLOCKED 等错误码行为。"
+    selfTestNotes:
+      recommendedMode: "article"
+      expectedFailureCodes:
+        - "AUTH_REQUIRED"
+        - "ANTI_BOT_OR_BLOCKED"
+
+  - id: motie
+    name: 磨铁中文网
+    domain: www.laikan.com
+    detailUrlSample: "https://www.laikan.com/book/89491"
+    chapterUrlSample: "https://www.laikan.com/chapter/89491/1"
+    sampleInfo:
+      workTitle: "《慧眼无双》"
+      detailPageLabel: "作品详情页"
+      chapterLabel: "第164章 大结局"
+      sampleStatus: "motie.com/book/* 302 到 laikan.com；Node fetch 存在证书链校验问题，自测脚本已加 curl -k 兜底"
+      notes:
+        - "作者：年华似水1。"
+    verifiedLevel: "detail_only"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".book-title"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".book-intro"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - ".chapter-list"
+          - ".mulu"
+        linkSelector: "a[href*=\"/chapter/\"]"
+      chapterNavType:
+        - "上一章/下一章链接 + URL 数值递增"
+      paginationNotes:
+        - "个别 VIP 章节需登录。"
+      dynamicRendering: false
+      notes:
+        - "结构常规，适合作为通用规则的 sanity check。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "AUTH_REQUIRED"
+        - "PAYWALL_BLOCKED"
+
+  - id: tadu
+    name: 塔读文学
+    domain: www.tadu.com
+    detailUrlSample: "https://www.tadu.com/book/catalogue/1040788"
+    chapterUrlSample: "https://www.tadu.com/book/1040788/102432680"
+    sampleInfo:
+      workTitle: "《寒门读书郎》"
+      detailPageLabel: "作品详情页"
+      chapterLabel: "第4章：灭魂棺收残魂"
+      sampleStatus: "章节正文由页面内 bookPartResourceUrl 二次接口返回，导入时需异步拉取合并"
+      notes:
+        - "作者：大风歌。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - ".book-title"
+        - "h1"
+        - "title"
+      introSelectors:
+        - ".book-intro"
+        - ".intro"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - ".chapter-list"
+          - ".mulu"
+        linkSelector: "a[href]"
+      chapterNavType:
+        - "章节页顶部/底部上一章/下一章"
+      paginationNotes:
+        - "部分章节付费。"
+      dynamicRendering: false
+      notes:
+        - "目录结构接近“章节列表 ul/ol + a[href]”，易落入泛 TOC 规则。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes:
+        - "PAYWALL_BLOCKED"
+
+  - id: free_biquge
+    name: 笔趣阁（典型免费站）
+    domain: www.bqudu.com
+    detailUrlSample: "https://www.bqudu.com/book/5rf8/"
+    chapterUrlSample: "https://www.bqudu.com/book/5rf8/8.html"
+    sampleInfo:
+      workTitle: "《斗破苍穹》"
+      detailPageLabel: "书籍简介页 / 目录页（可访问变体站）"
+      chapterLabel: "第1章 陨落的天才"
+      sampleStatus: "原 m.boquge.com 当前网络不可达；已切换到结构相似且可访问的 bqudu.com 变体站用于回归"
+      notes:
+        - "作者：天蚕土豆。"
+        - "章节列表分页页含大量章节链接，适合 TOC 抓取自测：`https://m.boquge.com/wapbook/46773-2.html`。"
+    verifiedLevel: "full"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - "#info h1"
+        - "h1"
+        - "title"
+      introSelectors:
+        - "#intro"
+        - ".intro"
+      tocHints:
+        containers:
+          - "#list"
+          - ".chapter-list"
+        linkSelector: "a[href]"
+        chapterTextHeuristics:
+          - "含“第…章”或短标题"
+      chapterNavType:
+        - "章节页底部“上一章/下一章/返回目录”"
+      paginationNotes:
+        - "通常为单页章节；少量站点变体有分页。"
+      dynamicRendering: false
+      notes:
+        - "虽然为第三方聚合站，但目录/正文结构非常规整，是 Readability + detectTOC 的理想样本。"
+    selfTestNotes:
+      recommendedMode: "book"
+      expectedFailureCodes: []
+
+  - id: misc_blog
+    name: 通用博客/专栏文章（对照组）
+    domain: example.com
+    detailUrlSample: "https://example.com/blog/novel-serialization-index"
+    chapterUrlSample: "https://example.com/blog/novel-serialization-1"
+    sampleInfo:
+      workTitle: "示例连载专栏（虚拟对照组）"
+      detailPageLabel: "索引页 / 连载目录页"
+      chapterLabel: "第1篇 / 第一回"
+      sampleStatus: "虚拟示例，不指向真实站点"
+      notes:
+        - "这是对照组，用于说明非小说站的目录/正文边界，不应纳入真实站点回归统计。"
+    requiresLoginOrPaywall: false
+    siteStructure:
+      titleSelectors:
+        - "h1"
+        - "title"
+      introSelectors:
+        - "article p"
+        - 'meta[name=\"description\"]'
+      tocHints:
+        containers:
+          - "main"
+          - "body"
+        linkSelector: "a[href]"
+        chapterTextHeuristics:
+          - "短文本链接集合模拟“章节目录”"
+      chapterNavType:
+        - "文章页底部“下一篇/上一篇”"
+      paginationNotes:
+        - "用作对照：目录检测可能只拿到少量 entries 或 none。"
+      dynamicRendering: false
+      notes:
+        - "用于验证非小说站在当前链路下的行为边界。"
+    selfTestNotes:
+      recommendedMode: "article"
+      expectedFailureCodes: []
+

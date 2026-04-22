@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "lint": "echo \"(optional) add eslint later\"",
     "selftest:chapters": "node ./scripts/selftest-chapter-split.mjs",
+    "selftest:web-import-core": "node ./scripts/ensure-dist-electron.mjs && tsc -p tsconfig.node.json && node ./scripts/selftest-web-import-core.mjs",
+    "selftest:web-import": "node ./scripts/ensure-dist-electron.mjs && tsc -p tsconfig.node.json && node ./scripts/selftest-web-import-samples.mjs",
     "rebuild:native": "cross-env PYTHONPATH=./scripts/py-distutils electron-rebuild -f -w better-sqlite3",
     "postinstall": "node ./scripts/ensure-electron.mjs && npm run rebuild:native"
   },

@@ -1,0 +1,79 @@
+{
+  "generatedAt": "2026-04-16T12:21:45.382Z",
+  "total": 1,
+  "passed": 0,
+  "failed": 1,
+  "performance": {
+    "totalMs": {
+      "p50": 6728,
+      "p90": 6728,
+      "avg": 6728
+    },
+    "chapterProbeMs": {
+      "p50": 293,
+      "p90": 293,
+      "avg": 293
+    },
+    "timeoutRate": 0,
+    "domTooLargeRate": 0
+  },
+  "results": [
+    {
+      "id": "tomato",
+      "name": "番茄小说",
+      "detailUrl": "https://fanqienovel.com/page/7247434833704518201",
+      "chapterUrl": "https://fanqienovel.com/reader/7247432399078818365",
+      "checks": {
+        "basicInfo": true,
+        "toc": false,
+        "detailContent": true,
+        "chapterContent": true,
+        "content": true,
+        "navigation": false,
+        "paywallOrAuth": false
+      },
+      "evidence": {
+        "detailFinalUrl": "https://fanqienovel.com/page/7247434833704518201",
+        "chapterFinalUrl": "https://fanqienovel.com/reader/7247432399078818365",
+        "tocSource": "detail_page",
+        "tocEntryCount": 4,
+        "tocSampleTitles": [
+          "最近更新：无级"
+        ],
+        "tocQuality": {
+          "chapterLikeCount": 1,
+          "ratio": 0.333
+        },
+        "bookTitle": "无级",
+        "detailTitle": "无级完整版在线",
+        "detailLength": 70,
+        "detailExcerpt": "番茄小说提供无级完整版在线免费阅读，精彩小说尽在番茄小说网。无级...番茄小说提供无级完整版在线免费阅读，精彩小说尽在番茄小说网。无级...",
+        "chapterTitle": "无级无级在线",
+        "chapterTitleSource": "extractor",
+        "chapterLength": 129,
+        "chapterExcerpt": "无级本章字数：103字更新时间：2023-06-22穿越异，凭角环巅峰............................…………………………………………………………………………………………………………………………………………",
+        "nav": {
+          "nextUrl": "https://www.changdunovel.com/",
+          "prevUrl": "",
+          "nextProbe": "NO_MAIN_CONTENT"
+        },
+        "errorCode": "",
+        "consistencyIssues": []
+      },
+      "timings": {
+        "detailFetchMs": 1286,
+        "detailProbeMs": 718,
+        "chapterFetchMs": 366,
+        "chapterProbeMs": 293,
+        "navigationProbeMs": 348,
+        "totalMs": 6728
+      },
+      "failures": [
+        "下一章跳转失败: NO_MAIN_CONTENT",
+        "目录提取失败（章节样本质量不足）",
+        "章节跳转验证失败"
+      ],
+      "pass": false
+    }
+  ]
+}

@@ -88,42 +88,97 @@ async function waitWebContentsReady(wc: Electron.WebContents, timeoutMs = 20000)
 }
 
 async function runStructuredExtraction(wc: Electron.WebContents, fallbackUrl?: string) {
+  const t0 = Date.now()
+  const durations: Record<string, number> = {
+    waitReadyMs: 0,
+    lazyLoadMs: 0,
+    extractPageMs: 0,
+    extractContentMs: 0,
+    detectNavigationMs: 0,
+    detectTocMs: 0,
+    resolveNextMs: 0
+  }
+  const hostForLog = (() => {
+    try {
+      const raw = wc.getURL() || fallbackUrl || ''
+      return raw ? new URL(raw).host : '(unknown-host)'
+    } catch {
+      return '(invalid-url)'
+    }
+  })()
+
   try {
+    const s = Date.now()
     await waitWebContentsReady(wc)
+    durations.waitReadyMs = Date.now() - s
   } catch (e) {
+    durations.waitReadyMs = Date.now() - t0
     if (!isWebExtractLoadTimeout(e)) throw e
   }
 
   const bridge = new BrowserBridge(wc)
   try {
+    const s = Date.now()
     await bridge.triggerLazyLoad(7)
+    durations.lazyLoadMs = Date.now() - s
   } catch {
     // ignore warmup failures
   }
-  const page = (await bridge.extractWhenReady<{ url: string; html: string; title: string }>(
-    `({ url: location.href || '', html: document.documentElement.outerHTML || '', title: document.title || '' })`,
-    { waitForImages: true, settleAfterMs: 250, timeoutMs: 5000, maxDomNodes: 5000 }
-  )) as { url: string; html: string; title: string }
-
-  const pageUrl = String(page?.url || fallbackUrl || '')
-  const extractor = new WebContentExtractor({ minTextLength: 200 })
-  let extracted
   try {
-    extracted = extractor.extractCurrentPage(pageUrl, page?.html || '')
-  } catch (err) {
-    throw mapExtractErrorToWebError(err)
-  }
-  const nav = extractor.detectNavigation(page?.html || '', pageUrl)
-  const toc = extractor.detectTOC(pageUrl, page?.html || '')
-  const nextResolved = extractor.resolveNextChapter(pageUrl, toc.entries, nav)
+    const sPage = Date.now()
+    const page = (await bridge.extractWhenReady<{ url: string; html: string; title: string }>(
+      `({ url: location.href || '', html: document.documentElement.outerHTML || '', title: document.title || '' })`,
+      { waitForImages: true, settleAfterMs: 250, timeoutMs: 5000, maxDomNodes: 5000 }
+    )) as { url: string; html: string; title: string }
+    durations.extractPageMs = Date.now() - sPage
 
-  return {
-    pageUrl,
-    pageTitle: String(page?.title || ''),
-    extracted,
-    nav,
-    toc,
-    nextResolved
+    const pageUrl = String(page?.url || fallbackUrl || '')
+    const extractor = new WebContentExtractor({ minTextLength: 200 })
+    let extracted
+    try {
+      const sExtract = Date.now()
+      extracted = await extractor.extractCurrentPageAsync(pageUrl, page?.html || '')
+      durations.extractContentMs = Date.now() - sExtract
+    } catch (err) {
+      throw mapExtractErrorToWebError(err)
+    }
+
+    const sNav = Date.now()
+    const nav = extractor.detectNavigation(page?.html || '', pageUrl)
+    durations.detectNavigationMs = Date.now() - sNav
+
+    const sToc = Date.now()
+    const toc = extractor.detectTOC(pageUrl, page?.html || '')
+    durations.detectTocMs = Date.now() - sToc
+
+    const sNext = Date.now()
+    const nextResolved = extractor.resolveNextChapter(pageUrl, toc.entries, nav)
+    durations.resolveNextMs = Date.now() - sNext
+
+    const totalMs = Date.now() - t0
+    console.info('[web-import][timing] extraction ok', {
+      host: hostForLog,
+      totalMs,
+      ...durations
+    })
+
+    return {
+      pageUrl,
+      pageTitle: String(page?.title || ''),
+      extracted,
+      nav,
+      toc,
+      nextResolved
+    }
+  } catch (err) {
+    const totalMs = Date.now() - t0
+    console.warn('[web-import][timing] extraction failed', {
+      host: hostForLog,
+      totalMs,
+      ...durations,
+      error: err instanceof Error ? err.message : String(err)
+    })
+    throw err
   }
 }
 
@@ -727,6 +782,30 @@ function mergeOverlayWebNextFromEnsure(
     webNextCandidates: cands?.length ? cands : undefined,
     webChapterSourceUrl: item.sourceUrl ?? undefined
   }
+}
+
+const OVERLAY_FETCH_FAILED_LINE =
+  '（本章正文未能自动获取：可能需登录/付费，或站点反爬。请回到主窗口在「网页导入」中打开该章节页处理。）'
+
+function resolveOverlayLinesWithEnsure(itemContentText: string, ensured: EnsureWebItemResult): string[] {
+  let lines = toRawLines(itemContentText)
+  if (!lines.some((l) => l.trim())) {
+    lines = [OVERLAY_FETCH_FAILED_LINE]
+    broadcastOverlayToast({
+      type: 'error',
+      message: '本章提取失败',
+      detail: ensured.fetchError
+    })
+    return lines
+  }
+
+  if (ensured.nextResolved?.needsConfirmation && ensured.nextResolved.candidates?.length) {
+    broadcastOverlayToast({
+      type: 'info',
+      message: '下一章链接不够确定，可在下方候选中打开网页确认'
+    })
+  }
+  return lines
 }
 
 ipcMain.handle('web:extractAtUrl', async (_evt, args: { url: string }) => {
@@ -1456,22 +1535,7 @@ ipcMain.handle('overlay:resume', async (_evt, args: { bookId: string; cols?: num
   if (!nextItemId) throw new Error('NO_ITEM')
   const ensured = await ensureWebItemContentFromSource(nextItemId)
   const { item } = getItemContent(nextItemId)
-  let lines = toRawLines(item.contentText)
-  if (!lines.some((l) => l.trim())) {
-    lines = [
-      '（本章正文未能自动获取：可能需登录/付费，或站点反爬。请回到主窗口在「网页导入」中打开该章节页处理。）'
-    ]
-    broadcastOverlayToast({
-      type: 'error',
-      message: '本章提取失败',
-      detail: ensured.fetchError
-    })
-  } else if (ensured.nextResolved?.needsConfirmation && ensured.nextResolved.candidates?.length) {
-    broadcastOverlayToast({
-      type: 'info',
-      message: '下一章链接不够确定，可在下方候选中打开网页确认'
-    })
-  }
+  const lines = resolveOverlayLinesWithEnsure(item.contentText, ensured)
   const lineIndex = Math.max(0, progress?.lineIndex ?? 0)
   const session: OverlaySession = {
     bookId: args.bookId,
@@ -1583,22 +1647,7 @@ ipcMain.handle('overlay:chapterStep', async (_evt, args: { delta: number }) => {
   if (!nextItemId) return { ok: false }
   const ensured = await ensureWebItemContentFromSource(nextItemId)
   const { item } = getItemContent(nextItemId)
-  let lines = toRawLines(item.contentText)
-  if (!lines.some((l) => l.trim())) {
-    lines = [
-      '（本章正文未能自动获取：可能需登录/付费，或站点反爬。请回到主窗口在「网页导入」中打开该章节页处理。）'
-    ]
-    broadcastOverlayToast({
-      type: 'error',
-      message: '本章提取失败',
-      detail: ensured.fetchError
-    })
-  } else if (ensured.nextResolved?.needsConfirmation && ensured.nextResolved.candidates?.length) {
-    broadcastOverlayToast({
-      type: 'info',
-      message: '下一章链接不够确定，可在下方候选中打开网页确认'
-    })
-  }
+  const lines = resolveOverlayLinesWithEnsure(item.contentText, ensured)
   // 章节切换时保留“当前是否自动阅读”的播放状态：
   // - 用户手动翻章时通常为暂停，结果仍保持暂停
   // - 自动阅读续章时需要继续播放
@@ -1852,22 +1901,7 @@ ipcMain.handle('overlay:restoreLast', async (_evt, args: { cols?: number }) => {
   try {
     const ensured = await ensureWebItemContentFromSource(last.itemId)
     const { item } = getItemContent(last.itemId)
-    let lines = toRawLines(item.contentText)
-    if (!lines.some((l) => l.trim())) {
-      lines = [
-        '（本章正文未能自动获取：可能需登录/付费，或站点反爬。请回到主窗口在「网页导入」中打开该章节页处理。）'
-      ]
-      broadcastOverlayToast({
-        type: 'error',
-        message: '本章提取失败',
-        detail: ensured.fetchError
-      })
-    } else if (ensured.nextResolved?.needsConfirmation && ensured.nextResolved.candidates?.length) {
-      broadcastOverlayToast({
-        type: 'info',
-        message: '下一章链接不够确定，可在下方候选中打开网页确认'
-      })
-    }
+    const lines = resolveOverlayLinesWithEnsure(item.contentText, ensured)
     const lineIndex = Math.min(last.lineIndex, Math.max(0, lines.length - 1))
     const session: OverlaySession = {
       bookId: last.bookId,

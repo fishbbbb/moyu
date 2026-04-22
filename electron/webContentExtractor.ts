@@ -1,37 +1,44 @@
 import { Readability } from '@mozilla/readability'
 import { JSDOM } from 'jsdom'
 import type { WebContents } from 'electron'
-
-type ContentStrategy = 'structured' | 'readability' | 'heuristic' | 'manual'
-
-export type ExtractPipelineDebug = {
-  candidateScores: Partial<Record<Exclude<ContentStrategy, 'manual'>, number>>
-  rankedOrder: ContentStrategy[]
-  selectedStrategy: Exclude<ContentStrategy, 'manual'>
-}
-
-type ExtractResult = {
-  title: string
-  content: string
-  textContent: string
-  length: number
-  source?: ContentStrategy
-  debug?: ExtractPipelineDebug
-}
-
-export type ExtractErrorCode =
-  | 'AUTH_REQUIRED'
-  | 'PAYWALL_BLOCKED'
-  | 'ANTI_BOT_OR_BLOCKED'
-  | 'TOC_PAGE_SUSPECT'
-  | 'PAGINATION_DETECTED'
-  | 'FONT_OBFUSCATED'
-  | 'IFRAME_CROSS_ORIGIN'
-  | 'SITE_NOT_FOUND'
-  | 'CONTENT_REMOVED'
-  | 'EXTRACTION_TIMEOUT'
-  | 'DOM_TOO_LARGE'
-  | 'NO_MAIN_CONTENT'
+import { createSiteAdapters } from './web-import/adapters'
+import { extractStructuredDataCore, fallbackExtractCore } from './web-import/core/content-extractor'
+import { collectNavNextCandidatesCore, resolveNextChapterCore } from './web-import/core/navigation-resolver'
+import { detectTocCore } from './web-import/core/toc-detector'
+import type {
+  ContentStrategy,
+  ExtractErrorCode,
+  ExtractorOptions,
+  ExtractPipelineDebug,
+  ExtractResult,
+  NavigationResult,
+  NavNextCandidate,
+  ResolvedNextChapter,
+  SiteAdapter,
+  SitePreExtractContext,
+  SitePreExtractResult,
+  TocResult,
+  TocSource,
+  TocStatus,
+  WebNextChapterCandidate
+} from './web-import/types'
+export type {
+  ContentStrategy,
+  ExtractErrorCode,
+  ExtractorOptions,
+  ExtractPipelineDebug,
+  ExtractResult,
+  NavigationResult,
+  NavNextCandidate,
+  ResolvedNextChapter,
+  SiteAdapter,
+  SitePreExtractContext,
+  SitePreExtractResult,
+  TocResult,
+  TocSource,
+  TocStatus,
+  WebNextChapterCandidate
+} from './web-import/types'
 
 export class ExtractError extends Error {
   readonly code: ExtractErrorCode
@@ -43,68 +50,54 @@ export class ExtractError extends Error {
   }
 }
 
-export type NavNextCandidate = {
-  url: string
-  label: string
-  confidence: number
-  reason: string
-}
-
-export type NavigationResult = {
-  nextUrl?: string
-  prevUrl?: string
-  nextConfidence?: number
-  nextReason?: string
-  prevConfidence?: number
-  prevReason?: string
-  /** 下一章启发式多候选（用于 0.45~0.75 置信区间由用户确认） */
-  nextCandidates?: NavNextCandidate[]
-}
-
-export type WebNextChapterCandidate = NavNextCandidate
-
-export type ResolvedNextChapter = {
-  nextUrl?: string
-  nextConfidence: number
-  nextReason: string
-  source: 'toc' | 'nav' | 'none'
-  needsConfirmation?: boolean
-  candidates?: WebNextChapterCandidate[]
-}
-
-export type TocStatus = 'ready' | 'partial' | 'missing'
-export type TocSource = 'list' | 'table' | 'mixed' | 'none'
-
-export type TocResult = {
-  isTocPage: boolean
-  tocUrlCandidate?: string
-  entries: Array<{ title: string; url: string }>
-  tocStatus: TocStatus
-  tocSource: TocSource
-}
-
-type ExtractorOptions = {
-  minTextLength?: number
-  keepImages?: boolean
-}
-
 const DEFAULT_MIN_TEXT_LENGTH = 200
 
 export class WebContentExtractor {
   private readonly minTextLength: number
   private readonly keepImages: boolean
+  private readonly siteAdapters: SiteAdapter[]
 
   constructor(options: ExtractorOptions = {}) {
     this.minTextLength = options.minTextLength ?? DEFAULT_MIN_TEXT_LENGTH
     this.keepImages = Boolean(options.keepImages ?? false)
+    this.siteAdapters = createSiteAdapters({
+      isBquduChapterUrl: (url) => this.isBquduChapterUrl(url),
+      extractBquduChapterContentHtml: (html) => this.extractBquduChapterContentHtml(html),
+      buildBquduMinimalChapterHtml: (shellHtml, partHtml) => this.buildBquduMinimalChapterHtml(shellHtml, partHtml),
+      isWereadReaderUrl: (url) => this.isWereadReaderUrl(url),
+      extractWereadChapterContentHtml: (html) => this.extractWereadChapterContentHtml(html),
+      buildWereadMinimalChapterHtml: (shellHtml, partHtml) => this.buildWereadMinimalChapterHtml(shellHtml, partHtml),
+      cleanWereadReaderNoise: (text) => this.cleanWereadReaderNoise(text),
+      detectWereadReaderTOC: (url, html) => this.detectWereadReaderTOC(url, html),
+      createWereadAuthRequiredError: () =>
+        new ExtractError('AUTH_REQUIRED', '微信读书 web reader 正文需登录或由前端加载，请在网页中登录后重试。'),
+      isTaduChapterUrl: (url) => this.isTaduChapterUrl(url),
+      fetchTaduPartContentHtml: (pageUrl, html) => this.fetchTaduPartContentHtml(pageUrl, html),
+      buildTaduMinimalChapterHtml: (shellHtml, partHtml) => this.buildTaduMinimalChapterHtml(shellHtml, partHtml),
+      hasTaduInjectedChapterBody: (document) => this.hasTaduInjectedChapterBody(document),
+      isJjwxcOnebookUrl: (url) => this.isJjwxcOnebookUrl(url),
+      cleanJjwxcChapterText: (text) => this.cleanJjwxcChapterText(text),
+      isTaduUrl: (url) => this.isTaduUrl(url),
+      cleanNovelReaderUiNoise: (text) => this.cleanNovelReaderUiNoise(text),
+      isReadnovelUrl: (url) => this.isReadnovelUrl(url)
+    })
   }
 
   extractCurrentPage(url: string, html: string): ExtractResult {
     const dom = new JSDOM(html, { url })
-    const blocked = this.detectBlockedState(dom)
+    const blocked = this.detectBlockedState(dom, url)
     if (blocked) throw blocked
 
-    const structured = this.extractStructuredData(dom)
+    // Some sites (or very short chapters) render only a small amount of text.
+    // If the page explicitly provides a word-count hint (e.g. "本章字数：103字"),
+    // relax minTextLength so we can still extract usable content.
+    const bodyTextForHint = this.normalizeText(dom.window.document.body?.textContent || '')
+    const wc = bodyTextForHint.match(/本章字数\s*[:：]\s*(\d+)\s*字/i)?.[1]
+    const wordCountHint = wc ? Number(wc) : NaN
+    const effectiveMinTextLength =
+      Number.isFinite(wordCountHint) && wordCountHint > 0 ? Math.min(this.minTextLength, Math.max(60, Math.round(wordCountHint * 0.95))) : this.minTextLength
+
+    const structured = this.extractStructuredData(dom, url)
     const readability = this.extractWithReadability(dom)
     const heuristic = this.fallbackExtract(dom)
 
@@ -125,9 +118,9 @@ export class WebContentExtractor {
       }
       const sanitized = this.sanitizeExtractResult(result)
       const processed = this.postProcessBySite(url, sanitized)
-      const score = this.scoreExtractCandidate(processed, dom)
+      const score = this.scoreExtractCandidate(processed, dom, effectiveMinTextLength)
       candidateScores[strategy] = score
-      if (score >= 0 && processed.length >= this.minTextLength) {
+      if (score >= 0 && processed.length >= effectiveMinTextLength) {
         ranked.push({ strategy, score, processed })
       }
     }
@@ -150,10 +143,25 @@ export class WebContentExtractor {
       }
     }
 
-    const blockedAfter = this.detectBlockedState(dom)
+    const blockedAfter = this.detectBlockedState(dom, url)
     if (blockedAfter) throw blockedAfter
     if (lastErr) throw lastErr
     throw new ExtractError('NO_MAIN_CONTENT', '未识别到可导入正文，请切换章节页或使用手动框选。')
+  }
+
+  /**
+   * 与 extractCurrentPage 相同，但对塔读等「首屏 HTML 不含正文、需二次请求 JSON/HTML片段」的站点补充拉取。
+   * Electron 主进程与 Node 18+ 均提供全局 fetch。
+   */
+  async extractCurrentPageAsync(url: string, html: string): Promise<ExtractResult> {
+    const adapters = this.findSiteAdapters(url)
+    for (const adapter of adapters) {
+      if (!adapter.preExtract) continue
+      const pre = await adapter.preExtract({ url, html })
+      if (pre?.error) throw pre.error
+      if (pre?.htmlForExtraction) return this.extractCurrentPage(url, pre.htmlForExtraction)
+    }
+    return this.extractCurrentPage(url, html)
   }
 
   extractFromSelectedHtml(url: string, selectedHtml: string, title = ''): ExtractResult {
@@ -184,11 +192,94 @@ export class WebContentExtractor {
   private postProcessBySite(url: string, result: ExtractResult): ExtractResult {
     const text = String(result.textContent || '')
     if (!text) return result
-    if (this.isJjwxcOnebookUrl(url)) {
-      const cleaned = this.cleanJjwxcChapterText(text)
-      return { ...result, textContent: cleaned, length: cleaned.length }
+    const adapters = this.findSiteAdapters(url)
+    if (!adapters.length) return result
+
+    let cleaned = text
+    let changed = false
+    for (const adapter of adapters) {
+      if (!adapter.postProcessText) continue
+      const next = this.normalizeText(adapter.postProcessText(cleaned))
+      if (next !== cleaned) changed = true
+      cleaned = next
     }
-    return result
+
+    if (!changed) return result
+    return { ...result, textContent: cleaned, length: cleaned.length }
+  }
+
+  private findSiteAdapters(url: string): SiteAdapter[] {
+    return this.siteAdapters.filter((adapter) => adapter.matches(url))
+  }
+
+  private shouldIgnoreMetaDescriptionBySite(url: string): boolean {
+    return this.findSiteAdapters(url).some((adapter) => Boolean(adapter.shouldIgnoreMetaDescription))
+  }
+
+  private hasInjectedChapterBodyBySite(url: string, document: Document): boolean {
+    return this.findSiteAdapters(url).some((adapter) => adapter.hasInjectedChapterBody?.(document) === true)
+  }
+
+  private detectTOCBySite(url: string, html: string): TocResult | null {
+    for (const adapter of this.findSiteAdapters(url)) {
+      const toc = adapter.detectTOC?.({ url, html })
+      if (toc) return toc
+    }
+    return null
+  }
+
+  private detectWereadReaderTOC(url: string, html: string): TocResult | null {
+    const entries: Array<{ title: string; url: string }> = []
+    const seen = new Set<string>()
+    const pushEntry = (title: string, href: string) => {
+      const t = String(title || '').trim()
+      const abs = this.absUrl(url, href)
+      if (!t || !abs) return
+      const fp = this.urlFingerprint(abs)
+      if (seen.has(fp)) return
+      seen.add(fp)
+      entries.push({ title: t, url: abs })
+    }
+
+    const meta = this.extractWereadReaderChapterInfos(url, html)
+    if (!meta?.chapters?.length) return null
+
+    const origin = (() => {
+      try {
+        return new URL(url).origin
+      } catch {
+        return 'https://weread.qq.com'
+      }
+    })()
+
+    const buildTitle = (raw: string) => {
+      const t = String(raw || '').trim()
+      if (/^\d{1,3}$/.test(t)) return `第${Number(t)}章`
+      return t
+    }
+
+    const chapters = meta.chapters
+      .map((c: any) => ({
+        uid: Number(c.chapterUid),
+        title: buildTitle(c.title || ''),
+        paid: Number(c.paid || 0),
+        wordCount: Number(c.wordCount || 0)
+      }))
+      .filter((c) => c.uid > 0 && c.title && c.title.length <= 90)
+      .sort((a, b) => a.uid - b.uid)
+
+    for (const c of chapters) {
+      // 用 query 参数合成“可指纹化”的章节链接，便于 resolveNextChapter/自测导航探测。
+      pushEntry(c.title, `${origin}/web/reader/${meta.infoId}?chapterUid=${c.uid}`)
+    }
+
+    return {
+      isTocPage: true,
+      tocUrlCandidate: undefined,
+      entries,
+      tocStatus: entries.length >= 2 ? 'ready' : entries.length === 1 ? 'partial' : 'missing',
+      tocSource: 'chapter_metadata'
+    }
   }
 
   private isJjwxcOnebookUrl(url: string): boolean {
@@ -200,12 +291,251 @@ export class WebContentExtractor {
     }
   }
 
+  private isTaduUrl(url: string): boolean {
+    try {
+      return /(^|\.)tadu\.com$/i.test(new URL(url).hostname)
+    } catch {
+      return false
+    }
+  }
+
+  private isWereadUrl(url: string): boolean {
+    try {
+      return /(^|\.)weread\.qq\.com$/i.test(new URL(url).hostname)
+    } catch {
+      return false
+    }
+  }
+
+  private isWereadReaderUrl(url: string): boolean {
+    try {
+      const u = new URL(url)
+      return this.isWereadUrl(url) && /\/web\/reader\//i.test(u.pathname)
+    } catch {
+      return false
+    }
+  }
+
+  private isBquduChapterUrl(url: string): boolean {
+    try {
+      const u = new URL(url)
+      if (!/(^|\.)bqudu\.com$/i.test(u.hostname)) return false
+      return /^\/book\/[a-z0-9]+\/[a-z0-9]+\.html$/i.test(u.pathname)
+    } catch {
+      return false
+    }
+  }
+
+  private extractBquduChapterContentHtml(html: string): string | null {
+    try {
+      const dom = new JSDOM(String(html || ''))
+      const el = dom.window.document.querySelector('#chaptercontent')
+      if (!el) return null
+      const t = this.normalizeText(el.textContent || '')
+      if (t.length < 180) return null
+      return el.innerHTML || ''
+    } catch {
+      return null
+    }
+  }
+
+  private extractTitleTag(shellHtml: string): string {
+    const m = String(shellHtml || '').match(/<title[^>]*>[\s\S]*?<\/title>/i)
+    return m ? m[0] : '<title></title>'
+  }
+
+  private buildBquduMinimalChapterHtml(shellHtml: string, partHtml: string): string {
+    const titleTag = this.extractTitleTag(shellHtml)
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/>${titleTag}</head><body><article id="bqudu-chapter-body">${partHtml}</article></body></html>`
+  }
+
+  private decodeJsonEscapedString(raw: string): string | null {
+    if (!raw) return null
+    try {
+      return JSON.parse(`"${raw}"`) as string
+    } catch {
+      return null
+    }
+  }
+
+  private extractWereadChapterContentHtml(html: string): string | null {
+    const src = String(html || '')
+    const keys = ['chapterContentHtml', 'chapterContentTargetHtml']
+    for (const key of keys) {
+      const re = new RegExp(`"${key}":"((?:\\\\\\\\.|[^"\\\\])*)"`)
+      const m = src.match(re)
+      if (!m?.[1]) continue
+      const decoded = this.decodeJsonEscapedString(m[1]) || ''
+      const text = this.normalizeText(new JSDOM(`<div>${decoded}</div>`).window.document.body.textContent || '')
+      if (!decoded.trim()) continue
+      // 微信读书章节正文通常远大于书城头部噪声，并包含较高中文密度。
+      if (text.length >= 180 && /[\u4e00-\u9fa5]{50,}/.test(text)) return decoded
+    }
+    return null
+  }
+
+  private extractWereadReaderChapterInfos(
+    url: string,
+    html: string
+  ): { infoId: string; chapters: Array<{ chapterUid: number; title: string; paid?: number; wordCount?: number }> } | null {
+    const src = String(html || '')
+    const m = src.match(/window\.__INITIAL_STATE__\s*=\s*({[\s\S]*?})\s*;/)
+    if (!m?.[1]) return null
+    try {
+      const state = JSON.parse(m[1]) as any
+      const reader = state?.reader
+      const infoId = String(reader?.infoId || '').trim()
+      const chapters = Array.isArray(reader?.chapterInfos) ? reader.chapterInfos : []
+      if (!chapters.length) return null
+
+      let id = infoId
+      if (!id) {
+        try {
+          const u = new URL(url)
+          const mm = u.pathname.match(/\/web\/reader\/([^/?#]+)/i)
+          if (mm?.[1]) id = mm[1]
+        } catch {
+          // ignore
+        }
+      }
+      if (!id) return null
+      return { infoId: id, chapters }
+    } catch {
+      return null
+    }
+  }
+
+  private buildWereadMinimalChapterHtml(shellHtml: string, partHtml: string): string {
+    const titleTag = this.extractTitleTag(shellHtml)
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/>${titleTag}</head><body><article id="weread-api-chapter-body" class="readerContent">${partHtml}</article></body></html>`
+  }
+
+  /** 章节阅读页：/book/{bookId}/{chapterId}，不含 catalogue 目录页 */
+  private isTaduChapterUrl(url: string): boolean {
+    try {
+      const u = new URL(url)
+      if (!/(^|\.)tadu\.com$/i.test(u.hostname)) return false
+      return /^\/book\/\d+\/\d+\/?$/i.test(u.pathname)
+    } catch {
+      return false
+    }
+  }
+
+  private parseTaduPartResourcePath(html: string): string | null {
+    const m = String(html || '').match(/id="bookPartResourceUrl"\s+value="([^"]+)"/i)
+    if (!m?.[1]) return null
+    const p = m[1].trim()
+    return p.startsWith('/') ? p : null
+  }
+
+  private buildTaduMinimalChapterHtml(shellHtml: string, partHtml: string): string {
+    const titleTag = this.extractTitleTag(shellHtml)
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/>${titleTag}</head><body><article id="tadu-api-chapter-body" class="read_details">${partHtml}</article></body></html>`
+  }
+
+  private async fetchTaduPartContentHtml(pageUrl: string, html: string): Promise<string | null> {
+    const path = this.parseTaduPartResourcePath(html)
+    if (!path) return null
+    let abs: string
+    try {
+      abs = new URL(path, pageUrl).href
+    } catch {
+      return null
+    }
+    try {
+      const res = await fetch(abs, {
+        headers: {
+          accept: 'application/json, text/plain, */*',
+          'accept-language': 'zh-CN,zh;q=0.9',
+          referer: pageUrl,
+          'user-agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'x-requested-with': 'XMLHttpRequest'
+        }
+      })
+      if (!res.ok) return null
+      const json = (await res.json()) as { status?: number; data?: { content?: string } }
+      const content = json?.data?.content
+      if (typeof content !== 'string' || !content.trim()) return null
+      return content
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 塔读接口返回的正文多为较短 <p>，若仍用「单段 >=120 字」判断会导致整页被误判为仅登录/付费壳层。
+   */
+  private hasTaduInjectedChapterBody(document: Document): boolean {
+    const el = document.querySelector('#tadu-api-chapter-body')
+    if (!el) return false
+    const t = this.normalizeText(el.textContent || '')
+    return t.length >= 400 && /[\u4e00-\u9fa5]/.test(t)
+  }
+
+  private isReadnovelUrl(url: string): boolean {
+    try {
+      return /(^|\.)readnovel\.com$/i.test(new URL(url).hostname)
+    } catch {
+      return false
+    }
+  }
+
+  private cleanNovelReaderUiNoise(text: string): string {
+    let out = this.normalizeText(String(text || ''))
+    if (!out) return out
+    const lines = out
+      .split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .filter((line) => {
+        if (line.length <= 1) return false
+        if (/^(目录|设置|书架|书签|投票|评论|扫码|保存|首页|退出|举报)$/i.test(line)) return false
+        // 勿用裸「APP」：正文中常见「塔读小说APP」等插入语，误删会清空塔读接口段落
+        if (/(我的书架|按.*键盘|下载APP|体验卡|推荐值|点评|阅读主题|字体大小|页面宽度)/i.test(line)) return false
+        return true
+      })
+    out = lines.join('\n')
+
+    const chapterStart = out.search(/第\s*[0-9零一二三四五六七八九十百千]+\s*[章回节卷]/)
+    if (chapterStart > 0 && chapterStart < 800) out = out.slice(chapterStart)
+    return this.normalizeText(out)
+  }
+
+  private cleanWereadReaderNoise(text: string): string {
+    let out = this.normalizeText(String(text || ''))
+    if (!out) return out
+    const lines = out
+      .split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .filter((line) => {
+        if (line.length <= 1) return false
+        if (
+          /(微信读书书城|我的书架|推荐值|体验卡|可读字数|万人点评|推荐\(|一般\(|不行\(|电子书|出版社|版权信息|书城|首页|登录|立即阅读)/i.test(
+            line
+          )
+        ) {
+          return false
+        }
+        return true
+      })
+    out = lines.join('\n')
+    // 若仅剩壳层导航词，直接视为无正文，交由主流程判 NO_MAIN_CONTENT
+    if (out.length < 120) return ''
+    return this.normalizeText(out)
+  }
+
   private cleanJjwxcChapterText(text: string): string {
     let out = this.normalizeText(String(text || ''))
     if (!out) return out
 
     const removePhrases: RegExp[] = [
       /\[图片\]/gi,
+      /\[收藏此章节\]/gi,
+      /\[投诉\]/gi,
+      /文章收藏/gi,
+      /倒数计时/gi,
       /插入书签/gi,
       /作者有话说/gi,
       /显示所有文的作话/gi,
@@ -230,9 +560,10 @@ export class WebContentExtractor {
     return this.normalizeText(out)
   }
 
-  private scoreExtractCandidate(result: ExtractResult, dom: JSDOM): number {
+  private scoreExtractCandidate(result: ExtractResult, dom: JSDOM, minTextLengthOverride?: number): number {
     const text = this.normalizeText(result.textContent || '')
-    if (text.length < this.minTextLength) return -1
+    const minLen = Number.isFinite(minTextLengthOverride ?? NaN) ? (minTextLengthOverride as number) : this.minTextLength
+    if (text.length < minLen) return -1
 
     const pCount = (result.content.match(/<p[\s>]/gi) || []).length
     const sentences = (text.match(/[。！？.!?]/g) || []).length
@@ -380,14 +711,7 @@ export class WebContentExtractor {
       prevReason = undefined
     }
 
-    const nextCandidates = this.collectNavNextCandidates(
-      baseUrl,
-      scored,
-      nextUrl,
-      nextConfidence,
-      nextReason,
-      seen
-    )
+    const nextCandidates = this.collectNavNextCandidates(scored, nextUrl, nextConfidence, nextReason, seen)
 
     return {
       nextUrl,
@@ -401,230 +725,63 @@ export class WebContentExtractor {
   }
 
   private collectNavNextCandidates(
-    baseUrl: string,
     scored: Array<{ text: string; url: string; score: number }>,
     primaryUrl: string | undefined,
     primaryConf: number | undefined,
     primaryReason: string | undefined,
     seen: Set<string>
   ): NavNextCandidate[] {
-    const out: NavNextCandidate[] = []
-    const add = (url: string, label: string, confidence: number, reason: string) => {
-      if (!url || seen.has(this.urlFingerprint(url))) return
-      if (out.some((x) => this.urlFingerprint(x.url) === this.urlFingerprint(url))) return
-      out.push({
-        url,
-        label: label.slice(0, 56) || '下一章',
-        confidence,
-        reason
-      })
-    }
-
-    if (primaryUrl && primaryConf !== undefined) {
-      add(primaryUrl, '系统推荐', primaryConf, primaryReason || 'primary')
-    }
-
-    for (const item of scored) {
-      if (!item.url) continue
-      const looksNext =
-        this.isNextText(item.text) ||
-        (/第\s*[0-9零一二三四五六七八九十百千]+\s*[章回节卷]/i.test(item.text) && item.score >= 48) ||
-        (/next|下一篇/i.test(item.text) && item.score >= 52)
-      if (!looksNext) continue
-      const conf = Math.min(0.88, 0.48 + item.score / 200)
-      add(item.url, item.text, conf, 'anchor_guess')
-      if (out.length >= 8) break
-    }
-
-    out.sort((a, b) => b.confidence - a.confidence)
-    return out.slice(0, 6)
+    return collectNavNextCandidatesCore({
+      scored,
+      primaryUrl,
+      primaryConf,
+      primaryReason,
+      seenFingerprints: seen,
+      urlFingerprint: (url) => this.urlFingerprint(url),
+      isNextText: (text) => this.isNextText(text)
+    })
   }
 
   /** 目录邻接优先，其次导航启发式；0.45~0.75 区间不自动给出唯一 nextUrl，改为 candidates 待确认。 */
   resolveNextChapter(pageUrl: string, tocEntries: Array<{ title: string; url: string }>, nav: NavigationResult): ResolvedNextChapter {
-    const curFp = this.urlFingerprint(pageUrl)
-    const idx = tocEntries.findIndex((e) => this.urlFingerprint(e.url) === curFp)
-    if (idx >= 0 && idx + 1 < tocEntries.length) {
-      const next = tocEntries[idx + 1]
-      return {
-        nextUrl: next.url,
-        nextConfidence: 0.92,
-        nextReason: 'toc_adjacent',
-        source: 'toc',
-        needsConfirmation: false,
-        candidates: [{ url: next.url, label: next.title, confidence: 0.92, reason: 'toc_adjacent' }]
-      }
-    }
-
-    const pool = [...(nav.nextCandidates ?? [])]
-    if (nav.nextUrl && !pool.some((c) => this.urlFingerprint(c.url) === this.urlFingerprint(nav.nextUrl!))) {
-      pool.unshift({
-        url: nav.nextUrl,
-        label: '系统推荐',
-        confidence: nav.nextConfidence ?? 0.5,
-        reason: nav.nextReason || 'nav_primary'
-      })
-    }
-    const viable = pool.filter((c) => c.confidence >= 0.45)
-    if (!viable.length) {
-      return { nextConfidence: 0, nextReason: 'none', source: 'none' }
-    }
-
-    viable.sort((a, b) => b.confidence - a.confidence)
-    const best = viable[0]
-
-    if (best.confidence >= 0.75) {
-      return {
-        nextUrl: best.url,
-        nextConfidence: best.confidence,
-        nextReason: best.reason,
-        source: 'nav',
-        needsConfirmation: false,
-        candidates: [best]
-      }
-    }
-
-    if (best.confidence >= 0.45 && best.confidence < 0.75) {
-      return {
-        needsConfirmation: true,
-        candidates: viable.slice(0, 6),
-        nextConfidence: best.confidence,
-        nextReason: 'pending_user_choice',
-        source: 'nav'
-      }
-    }
-
-    return { nextConfidence: 0, nextReason: 'none', source: 'none' }
+    return resolveNextChapterCore({
+      pageUrl,
+      tocEntries,
+      nav,
+      urlFingerprint: (url) => this.urlFingerprint(url)
+    })
   }
 
   detectTOC(url: string, html: string): TocResult {
-    const dom = new JSDOM(html, { url })
-    const { document } = dom.window
-    const entries: Array<{ title: string; url: string }> = []
-    const seen = new Set<string>()
-    const pushEntry = (title: string, href: string) => {
-      const t = String(title || '').trim()
-      const abs = this.absUrl(url, href)
-      if (!t || !abs) return
-      const fp = this.urlFingerprint(abs)
-      if (seen.has(fp)) return
-      seen.add(fp)
-      entries.push({ title: t, url: abs })
-    }
-
-    const titleText = `${document.title || ''} ${(document.querySelector('h1')?.textContent || '')}`.toLowerCase()
-    const isTocTitle = /(目录|章节|列表|catalog|toc|chapters)/i.test(titleText)
-
-    const minListLinks = isTocTitle ? 3 : 6
-    const listCandidates = Array.from(document.querySelectorAll('ul,ol'))
-      .map((list) => {
-        const links = Array.from(list.querySelectorAll('a[href]'))
-        const linkTexts = links.map((l) => (l.textContent || '').trim()).filter(Boolean)
-        const avgLen = linkTexts.length ? linkTexts.reduce((s, t) => s + t.length, 0) / linkTexts.length : 0
-        return { list, links, linkTexts, avgLen }
-      })
-      .filter((c) => c.links.length >= minListLinks && c.avgLen <= 45)
-
-    const bestList = listCandidates.sort((a, b) => b.links.length - a.links.length)[0]
-    let tocSource: TocSource = 'none'
-    if (bestList) {
-      tocSource = 'list'
-      for (const link of bestList.links) {
-        const t = (link.textContent || '').trim()
-        const href = link.getAttribute('href') || ''
-        pushEntry(t, href)
-      }
-    }
-
-    if (entries.length < 4) {
-      const tableAnchors = Array.from(document.querySelectorAll('table a[href]'))
-        .map((a) => ({
-          t: (a.textContent || '').trim(),
-          href: a.getAttribute('href') || ''
-        }))
-        .filter((x) => x.href && x.t && x.t.length <= 90)
-
-      if (tableAnchors.length >= 4) {
-        const before = entries.length
-        for (const x of tableAnchors) pushEntry(x.t, x.href)
-        if (entries.length > before) {
-          if (tocSource === 'none') tocSource = 'table'
-          else if (tocSource === 'list') tocSource = 'mixed'
-        }
-      }
-    }
-
-    const tocUrlCandidate = entries.length ? undefined : this.findTocLink(document, url)
-
-    const tocStatus: TocStatus =
-      entries.length >= 2 ? 'ready' : entries.length === 1 ? 'partial' : 'missing'
-
-    return {
-      isTocPage: Boolean(isTocTitle || entries.length >= minListLinks),
-      tocUrlCandidate,
-      entries,
-      tocStatus,
-      tocSource
-    }
+    const tocByAdapter = this.detectTOCBySite(url, html)
+    if (tocByAdapter) return tocByAdapter
+    return detectTocCore(url, html, {
+      absUrl: (baseUrl, href) => this.absUrl(baseUrl, href),
+      urlFingerprint: (v) => this.urlFingerprint(v),
+      isLikelyChapterLinkText: (v) => this.isLikelyChapterLinkText(v),
+      isLikelyChapterHref: (v) => this.isLikelyChapterHref(v),
+      findTocLink: (document, baseUrl) => this.findTocLink(document, baseUrl)
+    })
   }
 
   private fallbackExtract(dom: JSDOM): ExtractResult | null {
-    const best = this.findBestDensityCandidate(dom.window.document)
-    if (!best) return null
-    const cleaned = this.cleanNodeForText(best)
-    const textContent = this.normalizeText(cleaned.textContent || '')
-    return {
-      title: dom.window.document.title || '',
-      content: cleaned.innerHTML,
-      textContent,
-      length: textContent.length
-    }
+    return fallbackExtractCore(dom, {
+      findBestDensityCandidate: (document) => this.findBestDensityCandidate(document),
+      cleanNodeForText: (node) => this.cleanNodeForText(node),
+      normalizeText: (text) => this.normalizeText(text)
+    })
   }
 
-  private extractStructuredData(dom: JSDOM): ExtractResult | null {
-    const { document } = dom.window
-    const titleFromMeta =
-      document.querySelector('meta[property="og:title"]')?.getAttribute('content')?.trim() ||
-      document.querySelector('meta[name="twitter:title"]')?.getAttribute('content')?.trim() ||
-      ''
-    const descFromMeta =
-      document.querySelector('meta[property="og:description"]')?.getAttribute('content')?.trim() ||
-      document.querySelector('meta[name="description"]')?.getAttribute('content')?.trim() ||
-      document.querySelector('meta[name="twitter:description"]')?.getAttribute('content')?.trim() ||
-      ''
-
-    const jsonLdNodes = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
-    const bodies: string[] = []
-    for (const node of jsonLdNodes) {
-      const text = (node.textContent || '').trim()
-      if (!text) continue
-      try {
-        const parsed = JSON.parse(text)
-        this.collectStructuredText(parsed, bodies)
-      } catch {
-        // ignore malformed JSON-LD
-      }
-    }
-
-    const textContent = this.normalizeText([...(bodies || []), descFromMeta].filter(Boolean).join('\n\n'))
-    if (!textContent) return null
-
-    const content = textContent
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => `<p>${this.escapeHtml(line)}</p>`)
-      .join('')
-
-    return {
-      title: titleFromMeta || document.title || '',
-      content,
-      textContent,
-      length: textContent.length
-    }
+  private extractStructuredData(dom: JSDOM, sourceUrl = ''): ExtractResult | null {
+    return extractStructuredDataCore(dom, sourceUrl, {
+      normalizeText: (text) => this.normalizeText(text),
+      shouldIgnoreMetaDescriptionBySite: (url) => this.shouldIgnoreMetaDescriptionBySite(url),
+      collectStructuredText: (value, out) => this.collectStructuredText(value, out),
+      escapeHtml: (s) => this.escapeHtml(s)
+    })
   }
 
-  private detectBlockedState(dom: JSDOM): ExtractError | null {
+  private detectBlockedState(dom: JSDOM, baseUrl: string): ExtractError | null {
     const { document } = dom.window
     const bodyText = this.normalizeText(document.body?.textContent || '')
     const textLower = bodyText.toLowerCase()
@@ -642,11 +799,11 @@ export class WebContentExtractor {
       return new ExtractError('CONTENT_REMOVED', '内容可能因版权或下架不可访问，请更换来源页。')
     }
 
-    if (this.isAuthRequiredPage(document, textLower)) {
+    if (this.isAuthRequiredPage(document, textLower, baseUrl)) {
       return new ExtractError('AUTH_REQUIRED', '请先在网页中登录，再点击提取。')
     }
 
-    if (this.isPaywallBlockedPage(document, textLower)) {
+    if (this.isPaywallBlockedPage(document, textLower, baseUrl)) {
       return new ExtractError('PAYWALL_BLOCKED', '本章需购买或订阅，完成购买后请点击刷新重试。')
     }
     return null
@@ -675,7 +832,8 @@ export class WebContentExtractor {
     }
   }
 
-  private isAuthRequiredPage(document: Document, textLower: string): boolean {
+  private isAuthRequiredPage(document: Document, textLower: string, baseUrl: string): boolean {
+    if (this.hasInjectedChapterBodyBySite(baseUrl, document)) return false
     const hasAuthForm =
       document.querySelector('input[type="password"]') !== null ||
       document.querySelector('form[action*="login" i], form[id*="login" i], form[class*="login" i]') !== null
@@ -692,16 +850,21 @@ export class WebContentExtractor {
     ]
     const hasAuthWords = authKeywords.some((k) => textLower.includes(k.toLowerCase()))
     if (hasAuthForm) return true
+    const strongAuthHints = ['您还未登录', '登录后看书更方便', '微信登录', 'qq登录', '微博登录', '手机号登录']
+    const strongHintHits = strongAuthHints.filter((k) => textLower.includes(k.toLowerCase())).length
     if (!hasAuthWords) return false
     const bodyText = this.normalizeText(document.body?.textContent || '')
     const longParagraphs = Array.from(document.querySelectorAll('p'))
       .map((p) => this.normalizeText(p.textContent || ''))
       .filter((x) => x.length >= 120)
+    // 强提示词 + 正文明显缺失，优先判定为登录拦截（常见于章节页仅展示登录弹层文案）。
+    if (strongHintHits >= 2 && longParagraphs.length === 0) return true
     // 登录词仅在“正文明显缺失”时才判定，避免正文页页头/页脚文字误伤
     return bodyText.length < 280 && longParagraphs.length === 0
   }
 
-  private isPaywallBlockedPage(document: Document, textLower: string): boolean {
+  private isPaywallBlockedPage(document: Document, textLower: string, baseUrl: string): boolean {
+    if (this.hasInjectedChapterBodyBySite(baseUrl, document)) return false
     const payKeywords = [
       'vip',
       '付费',
@@ -720,10 +883,14 @@ export class WebContentExtractor {
       document.querySelector('[class*="blur" i], [style*="filter: blur" i]') !== null
     if (hasPayMask) return true
     if (!hasPayWords) return false
+    const strongPayHints = ['单章订阅', '余额不足', '立即充值', '解锁本章', '本章需购买', '投银票', '打赏本书']
+    const strongHintHits = strongPayHints.filter((k) => textLower.includes(k.toLowerCase())).length
     const bodyText = this.normalizeText(document.body?.textContent || '')
     const longParagraphs = Array.from(document.querySelectorAll('p'))
       .map((p) => this.normalizeText(p.textContent || ''))
       .filter((x) => x.length >= 120)
+    // 强付费提示 + 无有效长段正文，判定为付费拦截页。
+    if (strongHintHits >= 2 && longParagraphs.length === 0) return true
     // 付费词仅在“正文明显缺失”时判定，避免评论区/页脚/站点导航中的关键词误判
     return bodyText.length < 280 && longParagraphs.length === 0
   }
@@ -745,12 +912,33 @@ export class WebContentExtractor {
       document.querySelector('input[name*="captcha" i], input[id*="captcha" i]') !== null ||
       document.querySelector('[class*="captcha" i], [id*="captcha" i], iframe[src*="captcha" i]') !== null ||
       document.querySelector('[class*="slider" i][class*="verify" i], [id*="slider" i][id*="verify" i]') !== null
-    return hasKeywords || hasCaptchaElement
+    // 常见风控壳页特征（起点/17k 等）：页面仅注入探针脚本或 acw/aliyunwaf 挑战脚本。
+    const scriptText = Array.from(document.querySelectorAll('script'))
+      .map((s) => s.textContent || '')
+      .join('\n')
+      .toLowerCase()
+    const htmlLower = String(document.documentElement?.outerHTML || '').toLowerCase()
+    const wafScriptHints = [
+      'aliyunwaf_',
+      'acw_sc__v2',
+      'var arg1=',
+      '/probe.js',
+      'var buid = "fffffffffffffffffff"'
+    ]
+    const hasWafHints = wafScriptHints.some((k) => scriptText.includes(k) || htmlLower.includes(k))
+    return hasKeywords || hasCaptchaElement || hasWafHints
   }
 
   private isSiteNotFoundPage(document: Document, textLower: string): boolean {
-    const t = `${document.title || ''} ${textLower}`.toLowerCase()
-    return /\b404\b/.test(t) || t.includes('not found') || t.includes('页面不存在') || t.includes('请求的页面不存在')
+    const title = String(document.title || '').toLowerCase()
+    const body = textLower
+    if (/\b404\b/.test(title) || title.includes('not found') || title.includes('页面不存在') || title.includes('请求的页面不存在')) {
+      return true
+    }
+    const hasBodyNotFound = body.includes('页面不存在') || body.includes('请求的页面不存在') || body.includes('not found')
+    const bodyText = this.normalizeText(document.body?.textContent || '')
+    // 仅在页面正文极短时才以 body 关键词判 404，避免误伤正文中出现“页面不存在”的提示块。
+    return hasBodyNotFound && bodyText.length < 260
   }
 
   private isContentRemovedPage(document: Document, textLower: string): boolean {
@@ -809,16 +997,8 @@ export class WebContentExtractor {
     return { hasPagination, nextPageUrl }
   }
 
-  private shouldIgnorePaginationBySite(baseUrl: string): boolean {
-    try {
-      const u = new URL(baseUrl)
-      // 晋江 onebook 章节页普遍会出现“1/2、下一页”等站点导航/评论区元素，
-      // 但正文并非分页缺失；此处禁用分页误判，优先保证正文可提取。
-      if (/(^|\.)jjwxc\.net$/i.test(u.hostname) && /\/onebook\.php$/i.test(u.pathname)) return true
-    } catch {
-      // ignore invalid url
-    }
-    return false
+  private shouldIgnorePaginationBySite(url: string): boolean {
+    return this.findSiteAdapters(url).some((adapter) => Boolean(adapter.ignorePagination))
   }
 
   private isLikelyFontObfuscated(text: string): boolean {
@@ -828,11 +1008,16 @@ export class WebContentExtractor {
       const cp = ch.codePointAt(0) || 0
       const isReplacement = ch === '\uFFFD'
       const isPrivateUse = cp >= 0xe000 && cp <= 0xf8ff
+      // 塔读等站会在正文插入 &、~、* 等分隔符防采集，勿与私用区乱码同等对待
       const isNormal =
-        /[\u4e00-\u9fa5a-zA-Z0-9\s，。！？、,.!?;:："'“”‘’（）()【】\[\]\-—_]/.test(ch)
+        /[\u4e00-\u9fa5a-zA-Z0-9\s，。！？、,.!?;:："'“”‘’（）()【】\[\]\-—_&~*]/.test(ch)
       if (isReplacement || isPrivateUse || !isNormal) weird += 1
     }
-    return weird / Math.max(1, text.length) >= 0.35
+    const ratio = weird / Math.max(1, text.length)
+    // Short extracts often include custom-font glyphs for some characters;
+    // don't be overly strict in those cases.
+    const threshold = text.length < 200 ? 0.6 : 0.35
+    return ratio >= threshold
   }
 
   private isCrossOriginIframeLikelyMain(document: Document, baseUrl: string, extractedText: string): boolean {
@@ -911,7 +1096,23 @@ export class WebContentExtractor {
       '.share',
       '.related',
       '.comment',
-      '.comments'
+      '.comments',
+      '[class*="toolbar" i]',
+      '[id*="toolbar" i]',
+      '[class*="header" i]',
+      '[id*="header" i]',
+      '[class*="footer" i]',
+      '[id*="footer" i]',
+      '[class*="menu" i]',
+      '[id*="menu" i]',
+      '[class*="nav" i]',
+      '[id*="nav" i]',
+      '[class*="setting" i]',
+      '[id*="setting" i]',
+      '[class*="reader-tools" i]',
+      '[class*="read-tool" i]',
+      '[class*="bookrack" i]',
+      '[class*="bookshelf" i]'
     ]
     for (const sel of removeSelectors) {
       clone.querySelectorAll(sel).forEach((el) => el.remove())
@@ -928,6 +1129,7 @@ export class WebContentExtractor {
     let score = 0
     if (this.isNextText(text) || this.isPrevText(text)) score += 80
     if (/chapter|section|page|第\s*\d+|章|节|回/i.test(text)) score += 20
+    if (this.isLikelyChapterHref(abs)) score += 26
     if (this.isSamePathGroup(baseUrl, abs)) score += 25
     score += this.pathSimilarityScore(baseUrl, abs)
     if (/\d+/.test(abs)) score += 10
@@ -935,11 +1137,11 @@ export class WebContentExtractor {
   }
 
   private isNextText(text: string): boolean {
-    return /(下一章|下一页|下一节|下页|下一篇|Next|Next\s*Chapter|Next\s*Page)/i.test(text)
+    return /(下一章|下一页|下一节|下页|下一篇|后[一1]章|继续阅读|加载下一章|下一回|下一节内容|Next|Next\s*Chapter|Next\s*Page|>>|›)/i.test(text)
   }
 
   private isPrevText(text: string): boolean {
-    return /(上一章|上一页|上一节|上页|上一篇|Prev|Previous|Previous\s*Chapter)/i.test(text)
+    return /(上一章|上一页|上一节|上页|上一篇|前[一1]章|上一回|Prev|Previous|Previous\s*Chapter|<<|‹)/i.test(text)
   }
 
   private isSamePathGroup(a: string, b: string): boolean {
@@ -1000,12 +1202,52 @@ export class WebContentExtractor {
     try {
       const a = new URL(fromUrl)
       const b = new URL(toUrl)
+      const queryKeys = ['chapterid', 'cid', 'chapter', 'chapter_id', 'page', 'p']
+      for (const k of queryKeys) {
+        const av = this.getSearchParamCaseInsensitive(a, k)
+        const bv = this.getSearchParamCaseInsensitive(b, k)
+        if (av !== null && bv !== null) return bv - av
+      }
       const an = this.lastPathNumber(a.pathname.split('/').filter(Boolean))
       const bn = this.lastPathNumber(b.pathname.split('/').filter(Boolean))
       if (an === null || bn === null) return null
       return bn - an
     } catch {
       return null
+    }
+  }
+
+  private getSearchParamCaseInsensitive(u: URL, key: string): number | null {
+    const needle = key.toLowerCase()
+    for (const [k, v] of u.searchParams.entries()) {
+      if (k.toLowerCase() !== needle) continue
+      const n = Number(v)
+      if (Number.isFinite(n)) return n
+    }
+    return null
+  }
+
+  private isLikelyChapterLinkText(text: string): boolean {
+    const s = String(text || '').trim()
+    if (!s) return false
+    if (s.length > 80) return false
+    if (/^(登录|注册|目录|书页|返回|首页|上一章|下一章|上一页|下一页|下载|举报)$/i.test(s)) return false
+    if (/第\s*[零一二三四五六七八九十百千0-9]+\s*[章回节卷话篇]/i.test(s)) return true
+    if (/^(chapter|ch\.)\s*[0-9]+/i.test(s)) return true
+    return s.length <= 24
+  }
+
+  private isLikelyChapterHref(url: string): boolean {
+    if (!url) return false
+    try {
+      const u = new URL(url)
+      const p = u.pathname.toLowerCase()
+      if (/\/(chapter|reader|read|content)\b/.test(p)) return true
+      if (/\/\d+[-_]\d+/.test(p)) return true
+      const keys = ['chapterid', 'cid', 'chapter', 'chapter_id']
+      return keys.some((k) => this.getSearchParamCaseInsensitive(u, k) !== null)
+    } catch {
+      return false
     }
   }
 
@@ -1065,7 +1307,10 @@ export class WebContentExtractor {
   private absUrl(base: string, href: string): string {
     if (!href) return ''
     try {
-      return new URL(href, base).toString()
+      const u = new URL(href, base)
+      const proto = (u.protocol || '').toLowerCase()
+      if (proto !== 'http:' && proto !== 'https:') return ''
+      return u.toString()
     } catch {
       return ''
     }
