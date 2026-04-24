@@ -48,10 +48,10 @@
 ## zongheng (PASS)
 - 检查项: basicInfo=Y, toc=Y, detailContent=Y, chapterContent=Y, navigation=Y, paywallOrAuth=Y
 - 简介页检测:
-- 目录条数: 739
+- 目录条数: 749
 - 目录来源: detail_page
 - 目录样本: 第1章 这贞洁我不在乎了！ | 第2章 求陛下疼我 | 第3章 为何没赴约？ | 第4章 我没错 | 第5章 她不过是替身而已
-- 目录质量: chapterLike=739, ratio=1
+- 目录质量: chapterLike=749, ratio=1
 - 书名: 抢我婚约嫁太子？我携孕肚嫁皇帝
 - 详情页标题: (空)
 - 简介正文长度: 0
@@ -155,13 +155,13 @@
 - 登录/付费说明: 当前样例触发站点访问限制（ANTI_BOT_OR_BLOCKED），已按“预期拦截行为”判定；该链接在未登录/未购状态下不要求输出可读章节正文。
 - 失败原因: 基本信息提取失败（标题/URL）；目录提取失败（章节样本质量不足）；简介页正文提取失败（长度不足或未识别）；章节页正文提取失败（长度不足或未识别）；正文提取失败（简介页与章节页未同时达标）
 
-## faloo (FAIL)
-- 检查项: basicInfo=Y, toc=N, detailContent=Y, chapterContent=N, navigation=Y, paywallOrAuth=Y
+## faloo (PASS)
+- 检查项: basicInfo=Y, toc=Y, detailContent=Y, chapterContent=Y, navigation=Y, paywallOrAuth=Y
 - 简介页检测:
-- 目录条数: 10
+- 目录条数: 120
 - 目录来源: detail_page
-- 目录样本: 书库 | 标签选书 | 排行榜 | 畅读卡 | 畅读书库
-- 目录质量: chapterLike=0, ratio=0
+- 目录样本: 第一章 | 第二章 | 第三章 | 第四章 | 第五章
+- 目录质量: chapterLike=103, ratio=0.866
 - 书名: 折翼
 - 详情页标题: 折翼
 - 简介正文长度: 238
@@ -177,7 +177,6 @@
 - nextUrl: https://b.faloo.com/1207344_1272.html
 - next探测: PAYWALL_BLOCKED(expected_block)
 - 登录/付费说明: 当前样例触发站点访问限制（PAYWALL_BLOCKED），已按“预期拦截行为”判定；该链接在未登录/未购状态下不要求输出可读章节正文。
-- 失败原因: 目录提取失败（章节样本质量不足）；章节页正文提取失败（长度不足或未识别）；正文提取失败（简介页与章节页未同时达标）
 
 ## shuqi (PASS)
 - 检查项: basicInfo=Y, toc=Y, detailContent=Y, chapterContent=Y, navigation=Y, paywallOrAuth=Y
@@ -355,12 +354,7 @@
 - 章节摘录: (空)
 - nextUrl: https://www.laikan.com/chapter/89491/2
 - next探测: NO_MAIN_CONTENT
-- 失败原因: 目录页获取失败: Command failed: curl -k -L --max-time 18 -A Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 -H Accept-Language: zh-CN,zh;q=0.9,en;q=0.8 https://www.laikan.com/book/89491
-  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                 Dload  Upload   Total   Spent    Left  Speed
-  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0
-curl: (16) Error in the HTTP2 framing layer
-；章节页提取失败: NO_MAIN_CONTENT；下一章跳转失败: NO_MAIN_CONTENT；基本信息提取失败（标题/URL）；目录提取失败（章节样本质量不足）；简介页正文提取失败（长度不足或未识别）；章节页正文提取失败（长度不足或未识别）；正文提取失败（简介页与章节页未同时达标）；章节跳转验证失败
+- 失败原因: 章节页提取失败: NO_MAIN_CONTENT；下一章跳转失败: NO_MAIN_CONTENT；基本信息提取失败（标题/URL）；目录提取失败（章节样本质量不足）；简介页正文提取失败（长度不足或未识别）；章节页正文提取失败（长度不足或未识别）；正文提取失败（简介页与章节页未同时达标）；章节跳转验证失败
 
 ## tadu (PASS)
 - 检查项: basicInfo=Y, toc=Y, detailContent=Y, chapterContent=Y, navigation=Y, paywallOrAuth=Y
@@ -368,7 +362,7 @@ curl: (16) Error in the HTTP2 framing layer
 - 目录条数: 116
 - 目录来源: detail_page
 - 目录样本: 帮助反馈 | 第1章 陈家二房 | 第2章 未启蒙的识字儿 | 第3章 城中书馆 | 第4章 惊世之文
-- 目录质量: chapterLike=104, ratio=0.904
+- 目录质量: chapterLike=107, ratio=0.93
 - 书名: 寒门读书郎
 - 详情页标题: (空)
 - 简介正文长度: 0
@@ -376,8 +370,8 @@ curl: (16) Error in the HTTP2 framing layer
 - 章节页检测:
 - 章节标题: 寒门读书郎_第4章：灭魂棺收残魂_历史架空_大风歌
 - 章节标题来源: extractor
-- 章节正文长度: 2451
-- 章节摘录: 花开两朵，各表一枝。　　且说陈思源进入了钟氏族学馆的事，自然瞒不住陈千山一家。　　他们一家，原以为陈思源一家说陈思源要去参加县试，是说着玩的。　　可当得知陈思源已进入钟氏学馆，且早已报上了名时，他们一家却傻眼了。　　但他们仍然存有侥幸心理：这陈思源连学馆门都没进入的娃娃，怎么可能考得过县试？　　塔读小说，无广>告^在线免。费阅&读！　　然而，刘氏的父亲兄长，昨日竟然破天荒的降临到刘氏家中，使他的幻想彻底破灭了，她此时，才知道陈思源有多么的妖孽！　　前文已说到，这刘氏为庶出，父兄皆不待见。　　因此，虽说刘氏为大族，但
+- 章节正文长度: 2449
+- 章节摘录: 首发&：塔>-读小说　　花开两朵，各表一枝。　　且说陈思源进入了钟氏族学馆的事，自然瞒不住陈千山一家。　　他们一家，原以为陈思源一家说陈思源要去参加县试，是说着玩的。　　可当得知陈思源已进入钟氏学馆，且早已报上了名时，他们一家却傻眼了。　　但他们仍然存有侥幸心理：这陈思源连学馆门都没进入的娃娃，怎么可能考得过县试？　　然而，刘氏的父亲兄长，昨日竟然破天荒的降临到刘氏家中，使他的幻想彻底破灭了，她此时，才知道陈思源有多么的妖孽！　　前文已说到，这刘氏为庶出，父兄皆不待见。　　因此，虽说刘氏为大族，但对刘氏来说，这仅是
 - nextUrl: https://www.tadu.com/book/1040788/102306858
 - next探测: ok
 

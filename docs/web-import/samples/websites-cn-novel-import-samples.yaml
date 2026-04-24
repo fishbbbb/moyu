@@ -342,7 +342,7 @@ sites:
       notes:
         - "作者：俊七公子。"
         - "该作品适合测试飞卢的分页/分卷章节形态。"
-    requiresLoginOrPaywall: false
+    requiresLoginOrPaywall: true
     siteStructure:
       titleSelectors:
         - "h1"
@@ -370,6 +370,7 @@ sites:
       recommendedMode: "article"
       expectedFailureCodes:
         - "PAGINATION_DETECTED"
+        - "PAYWALL_BLOCKED"
 
   - id: shuqi
     name: 书旗小说

@@ -1231,7 +1231,18 @@ export class WebContentExtractor {
     const s = String(text || '').trim()
     if (!s) return false
     if (s.length > 80) return false
-    if (/^(登录|注册|目录|书页|返回|首页|上一章|下一章|上一页|下一页|下载|举报)$/i.test(s)) return false
+    if (
+      /^(登录|注册|目录|书页|返回|首页|上一章|下一章|上一页|下一页|下载|举报)$/i.test(s) ||
+      /(书库|标签选书|标签|排行榜|榜单|畅读卡|畅读书库|帮助中心|帮助反馈|作家助手|作者福利|书城|客服|充值|包月|会员|下载app|去app|app下载|作者专区|兼职赚钱)/i.test(s)
+    ) {
+      return false
+    }
+    // Common category / genre navigation labels (avoid treating them as chapters).
+    if (/(同人|玄幻|奇幻|武侠|仙侠|都市|言情|军事|历史|科幻|游戏|竞技|灵异|悬疑|校园|二次元|轻小说|现实|古代言情|现代言情|全部分类|分类)/i.test(s)) {
+      return false
+    }
+    // Short navigation labels that contain "小说" are usually channel links, not chapters.
+    if (/小说/i.test(s) && s.length <= 6) return false
     if (/第\s*[零一二三四五六七八九十百千0-9]+\s*[章回节卷话篇]/i.test(s)) return true
     if (/^(chapter|ch\.)\s*[0-9]+/i.test(s)) return true
     return s.length <= 24
@@ -1243,7 +1254,9 @@ export class WebContentExtractor {
       const u = new URL(url)
       const p = u.pathname.toLowerCase()
       if (/\/(chapter|reader|read|content)\b/.test(p)) return true
-      if (/\/\d+[-_]\d+/.test(p)) return true
+      // Avoid over-matching category/rank pages like "/y_0_1.html".
+      // Chapter urls are more often "{bookId}_{seq}" with a long book id.
+      if (/\/\d{5,}[-_]\d{1,6}/.test(p)) return true
       const keys = ['chapterid', 'cid', 'chapter', 'chapter_id']
       return keys.some((k) => this.getSearchParamCaseInsensitive(u, k) !== null)
     } catch {

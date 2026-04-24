@@ -1,18 +1,18 @@
 {
-  "generatedAt": "2026-04-22T01:14:25.401Z",
+  "generatedAt": "2026-04-24T03:32:54.146Z",
   "total": 18,
-  "passed": 13,
-  "failed": 5,
+  "passed": 14,
+  "failed": 4,
   "performance": {
     "totalMs": {
-      "p50": 2051,
-      "p90": 7726,
-      "avg": 3007
+      "p50": 1865,
+      "p90": 4310,
+      "avg": 2557
     },
     "chapterProbeMs": {
-      "p50": 62,
-      "p90": 268,
-      "avg": 91
+      "p50": 34,
+      "p90": 127,
+      "avg": 57
     },
     "timeoutRate": 0,
     "domTooLargeRate": 0
@@ -59,12 +59,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 957,
-        "detailProbeMs": 48,
-        "chapterFetchMs": 329,
-        "chapterProbeMs": 11,
+        "detailFetchMs": 533,
+        "detailProbeMs": 6,
+        "chapterFetchMs": 366,
+        "chapterProbeMs": 3,
         "navigationProbeMs": 0,
-        "totalMs": 2051
+        "totalMs": 1295
       },
       "failures": [
         "基本信息提取失败（标题/URL）",
@@ -121,12 +121,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 586,
-        "detailProbeMs": 460,
-        "chapterFetchMs": 236,
-        "chapterProbeMs": 212,
-        "navigationProbeMs": 191,
-        "totalMs": 3387
+        "detailFetchMs": 321,
+        "detailProbeMs": 236,
+        "chapterFetchMs": 1773,
+        "chapterProbeMs": 127,
+        "navigationProbeMs": 367,
+        "totalMs": 4227
       },
       "failures": [],
       "pass": true
@@ -149,7 +149,7 @@
         "detailFinalUrl": "https://huayu.zongheng.com/showchapter/1450262.html",
         "chapterFinalUrl": "https://m.zongheng.com/chapter/1450262/91755869",
         "tocSource": "detail_page",
-        "tocEntryCount": 739,
+        "tocEntryCount": 749,
         "tocSampleTitles": [
           "第1章 这贞洁我不在乎了！",
           "第2章 求陛下疼我",
@@ -158,7 +158,7 @@
           "第5章 她不过是替身而已"
         ],
         "tocQuality": {
-          "chapterLikeCount": 739,
+          "chapterLikeCount": 749,
           "ratio": 1
         },
         "bookTitle": "抢我婚约嫁太子？我携孕肚嫁皇帝",
@@ -178,12 +178,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 718,
-        "detailProbeMs": 140,
-        "chapterFetchMs": 339,
-        "chapterProbeMs": 56,
-        "navigationProbeMs": 299,
-        "totalMs": 1712
+        "detailFetchMs": 1463,
+        "detailProbeMs": 133,
+        "chapterFetchMs": 324,
+        "chapterProbeMs": 34,
+        "navigationProbeMs": 328,
+        "totalMs": 2411
       },
       "failures": [],
       "pass": true
@@ -235,12 +235,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 459,
-        "detailProbeMs": 28,
-        "chapterFetchMs": 366,
-        "chapterProbeMs": 124,
-        "navigationProbeMs": 478,
-        "totalMs": 1560
+        "detailFetchMs": 444,
+        "detailProbeMs": 24,
+        "chapterFetchMs": 1459,
+        "chapterProbeMs": 70,
+        "navigationProbeMs": 373,
+        "totalMs": 2416
       },
       "failures": [],
       "pass": true
@@ -292,12 +292,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 786,
-        "detailProbeMs": 2267,
-        "chapterFetchMs": 916,
-        "chapterProbeMs": 268,
-        "navigationProbeMs": 611,
-        "totalMs": 5932
+        "detailFetchMs": 1045,
+        "detailProbeMs": 938,
+        "chapterFetchMs": 840,
+        "chapterProbeMs": 113,
+        "navigationProbeMs": 852,
+        "totalMs": 4310
       },
       "failures": [],
       "pass": true
@@ -349,12 +349,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 2506,
-        "detailProbeMs": 2050,
-        "chapterFetchMs": 1043,
-        "chapterProbeMs": 76,
-        "navigationProbeMs": 1078,
-        "totalMs": 7726
+        "detailFetchMs": 4913,
+        "detailProbeMs": 955,
+        "chapterFetchMs": 1403,
+        "chapterProbeMs": 74,
+        "navigationProbeMs": 3857,
+        "totalMs": 11890
       },
       "failures": [],
       "pass": true
@@ -400,12 +400,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 292,
-        "detailProbeMs": 5,
-        "chapterFetchMs": 142,
-        "chapterProbeMs": 4,
-        "navigationProbeMs": 135,
-        "totalMs": 993
+        "detailFetchMs": 321,
+        "detailProbeMs": 2,
+        "chapterFetchMs": 129,
+        "chapterProbeMs": 7,
+        "navigationProbeMs": 142,
+        "totalMs": 1185
       },
       "failures": [
         "基本信息提取失败（标题/URL）",
@@ -423,10 +423,10 @@
       "chapterUrl": "https://b.faloo.com/1207344_1271.html",
       "checks": {
         "basicInfo": true,
-        "toc": false,
+        "toc": true,
         "detailContent": true,
-        "chapterContent": false,
-        "content": false,
+        "chapterContent": true,
+        "content": true,
         "navigation": true,
         "paywallOrAuth": true
       },
@@ -434,17 +434,17 @@
         "detailFinalUrl": "http://b.faloo.com/html_1207_1207344/",
         "chapterFinalUrl": "https://b.faloo.com/1207344_1271.html",
         "tocSource": "detail_page",
-        "tocEntryCount": 10,
+        "tocEntryCount": 120,
         "tocSampleTitles": [
-          "书库",
-          "标签选书",
-          "排行榜",
-          "畅读卡",
-          "畅读书库"
+          "第一章",
+          "第二章",
+          "第三章",
+          "第四章",
+          "第五章"
         ],
         "tocQuality": {
-          "chapterLikeCount": 0,
-          "ratio": 0
+          "chapterLikeCount": 103,
+          "ratio": 0.866
         },
         "bookTitle": "折翼",
         "detailTitle": "折翼",
@@ -463,19 +463,15 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 1242,
-        "detailProbeMs": 1738,
-        "chapterFetchMs": 214,
-        "chapterProbeMs": 22,
-        "navigationProbeMs": 139,
-        "totalMs": 3985
+        "detailFetchMs": 186,
+        "detailProbeMs": 1297,
+        "chapterFetchMs": 161,
+        "chapterProbeMs": 19,
+        "navigationProbeMs": 110,
+        "totalMs": 1901
       },
-      "failures": [
-        "目录提取失败（章节样本质量不足）",
-        "章节页正文提取失败（长度不足或未识别）",
-        "正文提取失败（简介页与章节页未同时达标）"
-      ],
-      "pass": false
+      "failures": [],
+      "pass": true
     },
     {
       "id": "shuqi",
@@ -524,12 +520,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 605,
-        "detailProbeMs": 49,
-        "chapterFetchMs": 677,
-        "chapterProbeMs": 83,
-        "navigationProbeMs": 314,
-        "totalMs": 1790
+        "detailFetchMs": 1001,
+        "detailProbeMs": 27,
+        "chapterFetchMs": 1193,
+        "chapterProbeMs": 60,
+        "navigationProbeMs": 305,
+        "totalMs": 2637
       },
       "failures": [],
       "pass": true
@@ -581,12 +577,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 270,
-        "detailProbeMs": 12,
-        "chapterFetchMs": 138,
-        "chapterProbeMs": 21,
-        "navigationProbeMs": 163,
-        "totalMs": 2083
+        "detailFetchMs": 320,
+        "detailProbeMs": 14,
+        "chapterFetchMs": 165,
+        "chapterProbeMs": 18,
+        "navigationProbeMs": 177,
+        "totalMs": 1542
       },
       "failures": [],
       "pass": true
@@ -636,11 +632,11 @@
       },
       "timings": {
         "detailFetchMs": 533,
-        "detailProbeMs": 246,
-        "chapterFetchMs": 333,
-        "chapterProbeMs": 306,
-        "navigationProbeMs": 287,
-        "totalMs": 2527
+        "detailProbeMs": 36,
+        "chapterFetchMs": 384,
+        "chapterProbeMs": 38,
+        "navigationProbeMs": 265,
+        "totalMs": 1872
       },
       "failures": [],
       "pass": true
@@ -690,12 +686,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 285,
-        "detailProbeMs": 126,
-        "chapterFetchMs": 111,
-        "chapterProbeMs": 62,
-        "navigationProbeMs": 156,
-        "totalMs": 1321
+        "detailFetchMs": 265,
+        "detailProbeMs": 65,
+        "chapterFetchMs": 113,
+        "chapterProbeMs": 37,
+        "navigationProbeMs": 132,
+        "totalMs": 1073
       },
       "failures": [],
       "pass": true
@@ -741,12 +737,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 230,
-        "detailProbeMs": 5,
-        "chapterFetchMs": 213,
+        "detailFetchMs": 321,
+        "detailProbeMs": 1,
+        "chapterFetchMs": 235,
         "chapterProbeMs": 4,
-        "navigationProbeMs": 135,
-        "totalMs": 991
+        "navigationProbeMs": 126,
+        "totalMs": 1091
       },
       "failures": [
         "基本信息提取失败（标题/URL）",
@@ -804,12 +800,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 1003,
-        "detailProbeMs": 153,
-        "chapterFetchMs": 340,
-        "chapterProbeMs": 63,
-        "navigationProbeMs": 425,
-        "totalMs": 2134
+        "detailFetchMs": 975,
+        "detailProbeMs": 107,
+        "chapterFetchMs": 294,
+        "chapterProbeMs": 45,
+        "navigationProbeMs": 346,
+        "totalMs": 1865
       },
       "failures": [],
       "pass": true
@@ -861,12 +857,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 360,
-        "detailProbeMs": 157,
-        "chapterFetchMs": 412,
-        "chapterProbeMs": 0,
+        "detailFetchMs": 459,
+        "detailProbeMs": 98,
+        "chapterFetchMs": 442,
+        "chapterProbeMs": 1,
         "navigationProbeMs": 0,
-        "totalMs": 1555
+        "totalMs": 1477
       },
       "failures": [],
       "pass": true
@@ -886,7 +882,7 @@
         "paywallOrAuth": false
       },
       "evidence": {
-        "detailFinalUrl": "",
+        "detailFinalUrl": "https://www.laikan.com/book/89491",
         "chapterFinalUrl": "https://www.laikan.com/chapter/89491/1",
         "tocSource": "none",
         "tocEntryCount": 0,
@@ -912,15 +908,14 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 0,
-        "detailProbeMs": 0,
-        "chapterFetchMs": 980,
-        "chapterProbeMs": 16,
-        "navigationProbeMs": 485,
-        "totalMs": 10786
+        "detailFetchMs": 957,
+        "detailProbeMs": 5,
+        "chapterFetchMs": 397,
+        "chapterProbeMs": 4,
+        "navigationProbeMs": 227,
+        "totalMs": 2082
       },
       "failures": [
-        "目录页获取失败: Command failed: curl -k -L --max-time 18 -A Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 -H Accept-Language: zh-CN,zh;q=0.9,en;q=0.8 https://www.laikan.com/book/89491\n  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0\r  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0\ncurl: (16) Error in the HTTP2 framing layer\n",
         "章节页提取失败: NO_MAIN_CONTENT",
         "下一章跳转失败: NO_MAIN_CONTENT",
         "基本信息提取失败（标题/URL）",
@@ -959,8 +954,8 @@
           "第4章 惊世之文"
         ],
         "tocQuality": {
-          "chapterLikeCount": 104,
-          "ratio": 0.904
+          "chapterLikeCount": 107,
+          "ratio": 0.93
         },
         "bookTitle": "寒门读书郎",
         "detailTitle": "",
@@ -968,8 +963,8 @@
         "detailExcerpt": "寒门读书郎最新章节情节构思巧妙，跌宕起伏,扣人心弦,情节与文笔俱佳的历史架空小说。塔读小说提供寒门读书郎最新章节全文,全集,电子书,大结局在线免费无弹窗阅读。",
         "chapterTitle": "寒门读书郎_第4章：灭魂棺收残魂_历史架空_大风歌",
         "chapterTitleSource": "extractor",
-        "chapterLength": 2451,
-        "chapterExcerpt": "花开两朵，各表一枝。　　且说陈思源进入了钟氏族学馆的事，自然瞒不住陈千山一家。　　他们一家，原以为陈思源一家说陈思源要去参加县试，是说着玩的。　　可当得知陈思源已进入钟氏学馆，且早已报上了名时，他们一家却傻眼了。　　但他们仍然存有侥幸心理：这陈思源连学馆门都没进入的娃娃，怎么可能考得过县试？　　塔读小说，无广>告^在线免。费阅&读！　　然而，刘氏的父亲兄长，昨日竟然破天荒的降临到刘氏家中，使他的幻想彻底破灭了，她此时，才知道陈思源有多么的妖孽！　　前文已说到，这刘氏为庶出，父兄皆不待见。　　因此，虽说刘氏为大族，但",
+        "chapterLength": 2449,
+        "chapterExcerpt": "首发&：塔>-读小说　　花开两朵，各表一枝。　　且说陈思源进入了钟氏族学馆的事，自然瞒不住陈千山一家。　　他们一家，原以为陈思源一家说陈思源要去参加县试，是说着玩的。　　可当得知陈思源已进入钟氏学馆，且早已报上了名时，他们一家却傻眼了。　　但他们仍然存有侥幸心理：这陈思源连学馆门都没进入的娃娃，怎么可能考得过县试？　　然而，刘氏的父亲兄长，昨日竟然破天荒的降临到刘氏家中，使他的幻想彻底破灭了，她此时，才知道陈思源有多么的妖孽！　　前文已说到，这刘氏为庶出，父兄皆不待见。　　因此，虽说刘氏为大族，但对刘氏来说，这仅是",
         "nav": {
           "nextUrl": "https://www.tadu.com/book/1040788/102306858",
           "prevUrl": "https://www.tadu.com/book/1040788/102305688",
@@ -979,12 +974,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 204,
-        "detailProbeMs": 230,
-        "chapterFetchMs": 66,
-        "chapterProbeMs": 191,
-        "navigationProbeMs": 388,
-        "totalMs": 1155
+        "detailFetchMs": 352,
+        "detailProbeMs": 147,
+        "chapterFetchMs": 170,
+        "chapterProbeMs": 352,
+        "navigationProbeMs": 422,
+        "totalMs": 1470
       },
       "failures": [],
       "pass": true
@@ -1036,12 +1031,12 @@
         "consistencyIssues": []
       },
       "timings": {
-        "detailFetchMs": 1743,
-        "detailProbeMs": 196,
-        "chapterFetchMs": 210,
-        "chapterProbeMs": 23,
-        "navigationProbeMs": 233,
-        "totalMs": 2436
+        "detailFetchMs": 710,
+        "detailProbeMs": 94,
+        "chapterFetchMs": 200,
+        "chapterProbeMs": 18,
+        "navigationProbeMs": 225,
+        "totalMs": 1276
       },
       "failures": [],
       "pass": true

@@ -55,9 +55,9 @@
 ## 4) 当前结果摘要（严格口径）
 
 - 样本总数：18
-- 通过：13
-- 失败：5
-- 当前 FAIL 站点：`qidian`、`seventeenk`、`faloo`、`qd_girls`、`motie`
+- 通过：14
+- 失败：4
+- 当前 FAIL 站点：`qidian`、`seventeenk`、`qd_girls`、`motie`
 
 ## 5) 已知边界与下一步
 
@@ -76,6 +76,7 @@
 - `desktop/electron/webContentExtractor.ts`
   - 针对短章节增加“字数提示感知”门槛：页面出现“本章字数：N字”时，自适应下调最小正文长度阈值。
   - 对短文本场景放宽字体混淆阈值，避免将可读短章误判为 `FONT_OBFUSCATED`。
+  - 章节/目录链接启发式收敛：补充“分类/频道/工具导航词”过滤，避免将站点导航菜单误判为章节列表（覆盖 `faloo` 一类站点）。
 - `desktop/electron/web-import/core/navigation-resolver.ts`
   - 为 TOC 相邻 next 增加“可疑链接过滤 + 同域优先”策略，减少跨域噪声 next 误命中，同时避免误伤非标准章节 URL。
 - `desktop/scripts/selftest-web-import-samples.mjs`
@@ -93,10 +94,11 @@
 ### 6.3 本轮回归结果
 
 - 执行：`npm run selftest:web-import-core` + 多轮 `npm run selftest:web-import`
-- 当前结果：`18 = 13 PASS / 5 FAIL`
+- 当前结果：`18 = 14 PASS / 4 FAIL`
 - 核心收益：
   - `tomato` 从 FAIL 提升为 PASS（`NO_MAIN_CONTENT` -> 可读短章 + 可用 next + chapter_sequence TOC）；
+  - `faloo` 从 FAIL 提升为 PASS（目录噪声 -> 章节列表；付费壳页按预期拦截解释）；
   - `free_biquge` 在导航策略调整后维持 PASS，无分页跳转回归；
   - 失败证据更稳定：`motie` 维持为可复现的网络/环境限制（HTTP2 framing + `NO_MAIN_CONTENT`）；
   - 网络兼容性增强：HTTP/2 framing 错误具备自动降级路径。
-- 仍未突破的站点：`qidian`、`seventeenk`、`faloo`、`qd_girls`、`motie`
+- 仍未突破的站点：`qidian`、`seventeenk`、`qd_girls`、`motie`
