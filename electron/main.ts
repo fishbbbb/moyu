@@ -1,5 +1,7 @@
-import { BrowserWindow, app, globalShortcut, ipcMain, screen } from 'electron'
+import { BrowserWindow, Menu, Tray, app, globalShortcut, ipcMain, nativeImage, screen } from 'electron'
+import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   deleteBook,
   createGroup,
@@ -31,6 +33,9 @@ let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
 let overlayToolbarWindow: BrowserWindow | null = null
 let overlaySettingsWindow: BrowserWindow | null = null
+let appTray: Tray | null = null
+let rebuildTrayMenu: (() => void) | null = null
+let isQuitting = false
 /** 与渲染进程 overlay:cfg.contentProtection 同步；新建工具栏/设置窗时需再次应用 */
 let overlayContentProtectionEnabled = false
 let overlayMoveTimer: NodeJS.Timeout | null = null
@@ -38,6 +43,225 @@ let overlayMoveState: null | { winStart: { x: number; y: number }; mouseStart: {
 let overlayRepaintPulseTimers: NodeJS.Timeout[] = []
 let auxSyncTimer: NodeJS.Timeout | null = null
 let auxSyncPending = false
+let overlayBoundsSaveTimer: NodeJS.Timeout | null = null
+
+type SavedOverlayBounds = { x: number; y: number; width: number; height: number }
+
+type IpcStringCheckOptions = {
+  minLength?: number
+  maxLength?: number
+}
+
+function overlayBoundsFilePath() {
+  return path.join(app.getPath('userData'), 'overlay-bounds.json')
+}
+
+function loadSavedOverlayBounds(): SavedOverlayBounds | null {
+  try {
+    const raw = fs.readFileSync(overlayBoundsFilePath(), 'utf8')
+    const j = JSON.parse(raw) as Partial<SavedOverlayBounds>
+    if (
+      typeof j?.x === 'number' &&
+      Number.isFinite(j.x) &&
+      typeof j?.y === 'number' &&
+      Number.isFinite(j.y) &&
+      typeof j?.width === 'number' &&
+      Number.isFinite(j.width) &&
+      typeof j?.height === 'number' &&
+      Number.isFinite(j.height)
+    ) {
+      return {
+        x: Math.floor(j.x),
+        y: Math.floor(j.y),
+        width: Math.max(220, Math.floor(j.width)),
+        height: Math.max(40, Math.floor(j.height))
+      }
+    }
+  } catch {
+    /* first launch or corrupt file */
+  }
+  return null
+}
+
+function saveOverlayBoundsNow() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  try {
+    const b = overlayWindow.getBounds()
+    fs.writeFileSync(
+      overlayBoundsFilePath(),
+      JSON.stringify({ x: b.x, y: b.y, width: b.width, height: b.height }),
+      'utf8'
+    )
+  } catch {
+    /* ignore disk errors */
+  }
+}
+
+function isNonEmptyString(value: unknown, opts: IpcStringCheckOptions = {}) {
+  if (typeof value !== 'string') return false
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  if (typeof opts.minLength === 'number' && trimmed.length < opts.minLength) return false
+  if (typeof opts.maxLength === 'number' && trimmed.length > opts.maxLength) return false
+  return true
+}
+
+function isStringArray(value: unknown, opts: IpcStringCheckOptions = {}) {
+  if (!Array.isArray(value)) return false
+  return value.every((v) => isNonEmptyString(v, opts))
+}
+
+function isPlainObject(value: unknown) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isPrivateOrLocalHostname(hostname: string) {
+  const host = String(hostname || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+  if (!host) return true
+  if (host === 'localhost' || host.endsWith('.localhost')) return true
+
+  // IPv4-mapped IPv6 → 递归检查嵌入的 IPv4
+  if (host.startsWith('::ffff:')) return isPrivateOrLocalHostname(host.slice('::ffff:'.length))
+
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (v4) {
+    const parts = [Number(v4[1]), Number(v4[2]), Number(v4[3]), Number(v4[4])]
+    if (parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true
+    const [a, b] = parts
+    if (a === 0 || a === 10 || a === 127) return true
+    if (a === 169 && b === 254) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    return false
+  }
+
+  // IPv6 loopback / link-local / unique local（仅当含 ':' 时按 IP 判断，避免误伤 fc2.com 等域名）
+  if (host.includes(':')) {
+    if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true
+    if (host.startsWith('fe80:')) return true
+    if (/^f[cd][0-9a-f]{0,2}:/i.test(host)) return true
+  }
+  return false
+}
+
+/** 仅允许可导航的公网 http(s)；拒绝私网、本机、带凭证 URL。 */
+function isValidHttpUrl(value: unknown) {
+  if (!isNonEmptyString(value, { maxLength: 4096 })) return false
+  const raw = String(value).trim()
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return false
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+  if (u.username || u.password) return false
+  if (!u.hostname) return false
+  if (isPrivateOrLocalHostname(u.hostname)) return false
+  return true
+}
+
+function isChapterList(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 500) return false
+  return value.every((it) => {
+    if (!it || typeof it !== 'object') return false
+    const chapter = it as { title?: unknown; url?: unknown }
+    return isNonEmptyString(chapter.title, { maxLength: 200 }) && isValidHttpUrl(chapter.url)
+  })
+}
+
+function assertTrustedIpcSender(evt: { sender: Electron.WebContents }) {
+  const wc = evt.sender
+  if (!wc || wc.isDestroyed()) throw new Error('IPC_FORBIDDEN')
+  const trusted = [mainWindow, overlayWindow, overlayToolbarWindow, overlaySettingsWindow]
+  const ok = trusted.some((w) => w != null && !w.isDestroyed() && w.webContents === wc)
+  if (!ok) throw new Error('IPC_FORBIDDEN')
+}
+
+function ipcHandleTrusted(
+  channel: string,
+  listener: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any
+) {
+  ipcMain.handle(channel, (event, ...args) => {
+    assertTrustedIpcSender(event)
+    return listener(event, ...args)
+  })
+}
+
+function ipcOnTrusted(channel: string, listener: (event: Electron.IpcMainEvent, ...args: any[]) => void) {
+  ipcMain.on(channel, (event, ...args) => {
+    try {
+      assertTrustedIpcSender(event)
+    } catch {
+      return
+    }
+    listener(event, ...args)
+  })
+}
+
+function isValidLayoutMode(value: unknown): value is 'capsule' | 'manage' {
+  return value === 'capsule' || value === 'manage'
+}
+
+function isValidDeleteGroupMode(value: unknown): value is 'keepBooks' | 'deleteBooks' {
+  return value === 'keepBooks' || value === 'deleteBooks'
+}
+
+function scheduleSaveOverlayBounds() {
+  if (overlayBoundsSaveTimer) clearTimeout(overlayBoundsSaveTimer)
+  overlayBoundsSaveTimer = setTimeout(() => {
+    overlayBoundsSaveTimer = null
+    saveOverlayBoundsNow()
+  }, 280)
+}
+
+function defaultOverlayBounds(): SavedOverlayBounds {
+  const wa = screen.getPrimaryDisplay().workArea
+  const width = Math.min(760, Math.max(420, Math.floor(wa.width * 0.62)))
+  const height = 56
+  return {
+    x: Math.round(wa.x + (wa.width - width) / 2),
+    y: wa.y,
+    width,
+    height
+  }
+}
+
+function resolveOverlayCreateBounds(): SavedOverlayBounds {
+  const saved = loadSavedOverlayBounds()
+  return clampToWorkArea(saved ?? defaultOverlayBounds())
+}
+
+/** 找回阅读条：移到可见区、显示工具栏，并通知渲染进程高亮 */
+function locateOverlayBar() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) createOverlayWindow()
+  const w = overlayWindow
+  if (!w || w.isDestroyed()) return { ok: false as const }
+
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const wa = display.workArea
+  const cur = w.getBounds()
+  const width = clamp(cur.width, 220, wa.width)
+  const height = clamp(cur.height, 40, Math.min(280, wa.height))
+  const x = Math.round(wa.x + (wa.width - width) / 2)
+  const y = Math.round(wa.y + Math.min(56, Math.max(12, Math.floor(wa.height * 0.06))))
+  w.setBounds(clampToWorkArea({ x, y, width, height }), false)
+  w.show()
+  w.focus()
+  saveOverlayBoundsNow()
+  broadcastOverlayBounds()
+
+  const tb = ensureOverlayToolbarWindow()
+  positionOverlayToolbar()
+  tb.showInactive()
+
+  // 仅用边框高亮反馈，不再弹驻留提示（托盘点完菜单后用户已看到结果）
+  w.webContents.send('overlay:locate', { at: Date.now() })
+  return { ok: true as const }
+}
 
 function getWebImportUserAgent() {
   // 一些站点会针对 Electron/Headless UA 直接返回 403/空内容；这里固定为常见 Chrome UA。
@@ -222,9 +446,14 @@ function getDevUrl() {
   return 'http://127.0.0.1:5173'
 }
 
+/** 渲染页 index（生产）；使用 pathToFileURL 以兼容 Windows 路径。 */
 function getIndexFileUrl() {
   const indexPath = path.join(app.getAppPath(), 'dist', 'index.html')
-  return `file://${indexPath}`
+  return pathToFileURL(indexPath).href
+}
+
+function getPreloadPath() {
+  return path.join(app.getAppPath(), 'dist-electron', 'preload.js')
 }
 
 function applyOverlayContentProtection(enabled: boolean) {
@@ -234,39 +463,210 @@ function applyOverlayContentProtection(enabled: boolean) {
     if (!w || w.isDestroyed()) continue
     try {
       w.setContentProtection(overlayContentProtectionEnabled)
-    } catch {
+    } catch { 
       // Linux 等环境可能不支持
     }
   }
 }
 
 function createMainWindow() {
+  // 迷你书架：默认窄窗，不占桌面；需要时用户可自行拉宽
+  const logo = loadAppLogo(128)
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 720,
+    width: 340,
+    height: 560,
+    minWidth: 300,
+    minHeight: 420,
+    ...(logo.isEmpty() ? {} : { icon: logo }),
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
-      contextIsolation: true
+      preload: getPreloadPath(),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      webSecurity: true
     }
+  })
+  attachWindowSecurity(mainWindow, 'local')
+
+  // 点关闭：收进托盘，不退出（托盘菜单可「退出」）
+  mainWindow.on('close', (e) => {
+    if (isQuitting) return
+    e.preventDefault()
+    mainWindow?.hide()
   })
 
   if (process.env.ELECTRON_DEV) {
     mainWindow.loadURL(`${getDevUrl()}/#/`)
-    // 开发时默认把 DevTools 停靠在窗口内，避免额外弹出一个独立窗口
-    mainWindow.webContents.openDevTools({ mode: 'right' })
+    // 不默认停靠 DevTools，避免把迷你窗撑成「半屏调试台」；需要时 Cmd/Ctrl+Shift+I
   } else {
     mainWindow.loadURL(`${getIndexFileUrl()}#/`)
   }
 }
 
+function resolveAppAsset(...parts: string[]) {
+  const candidates = [
+    path.join(app.getAppPath(), 'assets', ...parts),
+    path.join(process.resourcesPath, 'assets', ...parts),
+    path.join(process.cwd(), 'assets', ...parts),
+    path.join(__dirname, '..', 'assets', ...parts)
+  ]
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p
+    } catch {
+      /* ignore */
+    }
+  }
+  return candidates[0]
+}
+
+function loadAppLogo(size: 16 | 32 | 128 = 32) {
+  const file = size <= 16 ? 'logo-moyu-16.png' : size <= 32 ? 'logo-moyu-32.png' : 'logo-moyu-128.png'
+  const p = resolveAppAsset(file)
+  try {
+    const img = nativeImage.createFromPath(p)
+    if (!img.isEmpty()) return img
+  } catch {
+    /* fall through */
+  }
+  return nativeImage.createEmpty()
+}
+
+function attachWindowSecurity(win: BrowserWindow, mode: 'local' | 'web') {
+  const wc = win.webContents
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }))
+
+  wc.on('will-navigate', (event, url) => {
+    if (mode === 'web') {
+      if (isValidHttpUrl(url)) return
+    }
+    event.preventDefault()
+  })
+
+  wc.on('will-redirect', (event, url) => {
+    if (mode === 'web') {
+      if (isValidHttpUrl(url)) return
+    }
+    event.preventDefault()
+  })
+}
+
+function ensureTray() {
+  if (appTray && !appTray.isDestroyed()) return appTray
+
+  // 使用 vsix 墨鱼标；macOS 菜单栏用 template 图标，不再用「墨/yu」文字
+  let icon = loadAppLogo(process.platform === 'darwin' ? 16 : 32)
+  if (icon.isEmpty()) icon = nativeImage.createEmpty()
+  if (process.platform === 'darwin' && !icon.isEmpty()) {
+    try {
+      icon.setTemplateImage(true)
+    } catch {
+      /* ignore */
+    }
+  }
+  appTray = new Tray(icon)
+  if (process.platform === 'darwin') {
+    appTray.setTitle('')
+  }
+  appTray.setToolTip('墨鱼阅读器')
+  const rebuildMenu = () => {
+    const playing = Boolean(getOverlaySession()?.playing)
+    const menu = Menu.buildFromTemplate([
+      {
+        label: '显示书架',
+        click: () => {
+          showMainLibrary()
+        }
+      },
+      {
+        // 「显示」与「找回」合并：显示 + 移到可见区，避免两项语义重叠
+        label: '定位阅读条',
+        click: () => {
+          locateOverlayBar()
+        }
+      },
+      {
+        label: playing ? '暂停自动阅读' : '开始自动阅读',
+        click: () => {
+          const cur = getOverlaySession()
+          if (!cur) {
+            // 无会话时先打开书架，避免空点
+            showMainLibrary()
+            return
+          }
+          const next = { ...cur, playing: !playing }
+          setOverlaySession(next)
+          broadcastOverlaySession(next)
+          overlayWindow?.show()
+          rebuildMenu()
+        }
+      },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: () => {
+          isQuitting = true
+          app.quit()
+        }
+      }
+    ])
+    appTray?.setContextMenu(menu)
+  }
+  rebuildMenu()
+  rebuildTrayMenu = rebuildMenu
+  appTray.on('click', () => {
+    rebuildMenu()
+    // Windows/Linux：单击托盘切换书架显隐；macOS 以菜单为主
+    if (process.platform === 'darwin') return
+    if (mainWindow?.isVisible()) mainWindow.hide()
+    else showMainLibrary()
+  })
+  appTray.on('right-click', () => {
+    rebuildMenu()
+  })
+  appTray.on('double-click', () => {
+    showMainLibrary()
+  })
+  return appTray
+}
+
+function showMainLibrary() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow()
+  }
+  mainWindow?.show()
+  mainWindow?.focus()
+  if (process.platform === 'darwin') {
+    try {
+      app.show()
+      app.focus({ steal: true })
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function hideMainToTray() {
+  ensureTray()
+  mainWindow?.hide()
+  if (process.platform === 'darwin') {
+    // 主窗收起后，避免 Dock 激活把空窗顶回来；阅读条仍可独立显示
+    try {
+      /* keep running in menu bar */
+    } catch {
+      /* ignore */
+    }
+  }
+  return { ok: true }
+}
+
 function createOverlayWindow() {
-  const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize
-  const defaultW = Math.min(760, Math.max(420, Math.floor(screenWidth * 0.62)))
+  const init = resolveOverlayCreateBounds()
   overlayWindow = new BrowserWindow({
-    x: Math.max(0, Math.floor((screenWidth - defaultW) / 2)),
-    y: 0,
-    width: defaultW,
-    height: 56,
+    x: init.x,
+    y: init.y,
+    width: init.width,
+    height: init.height,
     transparent: true,
     backgroundColor: '#00000000',
     frame: false,
@@ -276,10 +676,12 @@ function createOverlayWindow() {
     skipTaskbar: true,
     focusable: true,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
-      contextIsolation: true
+      preload: getPreloadPath(),
+      contextIsolation: true,
+      sandbox: true
     }
   })
+  attachWindowSecurity(overlayWindow, 'local')
 
   // 兜底：若渲染进程漏发 overlay:moveStop（例如 pointerup 丢失），
   // 主进程仍应在窗口状态变化时停止跟随，避免“窗口吸附鼠标导致无法操作其他应用”。
@@ -319,10 +721,12 @@ function ensureOverlayToolbarWindow() {
     focusable: false,
     show: false,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
-      contextIsolation: true
+      preload: getPreloadPath(),
+      contextIsolation: true,
+      sandbox: true
     }
   })
+  attachWindowSecurity(overlayToolbarWindow, 'local')
   if (process.env.ELECTRON_DEV) overlayToolbarWindow.loadURL(`${getDevUrl()}/#/overlay-toolbar`)
   else overlayToolbarWindow.loadURL(`${getIndexFileUrl()}#/overlay-toolbar`)
   overlayToolbarWindow.on('closed', () => {
@@ -332,11 +736,19 @@ function ensureOverlayToolbarWindow() {
   return overlayToolbarWindow
 }
 
+/** 设置窗默认尺寸：固定外框高度，内容在框内滚动；绝不移动阅读条 */
+const OVERLAY_SETTINGS_DEFAULT = { width: 300, height: 380 } as const
+const OVERLAY_SETTINGS_MIN_H = 160
+
 function ensureOverlaySettingsWindow() {
   if (overlaySettingsWindow && !overlaySettingsWindow.isDestroyed()) return overlaySettingsWindow
   overlaySettingsWindow = new BrowserWindow({
-    width: 420,
-    height: 520,
+    width: OVERLAY_SETTINGS_DEFAULT.width,
+    height: OVERLAY_SETTINGS_DEFAULT.height,
+    minWidth: 280,
+    minHeight: OVERLAY_SETTINGS_MIN_H,
+    maxHeight: 520,
+    useContentSize: true,
     transparent: true,
     backgroundColor: '#00000000',
     frame: false,
@@ -347,10 +759,12 @@ function ensureOverlaySettingsWindow() {
     focusable: true,
     show: false,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
-      contextIsolation: true
+      preload: getPreloadPath(),
+      contextIsolation: true,
+      sandbox: true
     }
   })
+  attachWindowSecurity(overlaySettingsWindow, 'local')
   if (process.env.ELECTRON_DEV) overlaySettingsWindow.loadURL(`${getDevUrl()}/#/overlay-settings`)
   else overlaySettingsWindow.loadURL(`${getIndexFileUrl()}#/overlay-settings`)
   overlaySettingsWindow.on('closed', () => {
@@ -368,9 +782,12 @@ function ensureOverlaySettingsWindow() {
 function clampToWorkArea(bounds: { x: number; y: number; width: number; height: number }) {
   const display = screen.getDisplayMatching(bounds)
   const wa = display.workArea
-  const x = clamp(bounds.x, wa.x, wa.x + wa.width - bounds.width)
-  const y = clamp(bounds.y, wa.y, wa.y + wa.height - bounds.height)
-  return { ...bounds, x, y }
+  // 先把尺寸压进工作区，避免 height > workArea 时 y 的 clamp 上下界倒置、外框被裁切
+  const width = Math.min(Math.max(1, bounds.width), wa.width)
+  const height = Math.min(Math.max(1, bounds.height), wa.height)
+  const x = clamp(bounds.x, wa.x, wa.x + wa.width - width)
+  const y = clamp(bounds.y, wa.y, wa.y + wa.height - height)
+  return { ...bounds, x, y, width, height }
 }
 
 function positionOverlayToolbar() {
@@ -390,24 +807,76 @@ function positionOverlayToolbar() {
   overlayToolbarWindow.setBounds(clampToWorkArea({ x, y, width: tb.width, height: tb.height }), false)
 }
 
-function positionOverlaySettings() {
-  if (!overlayWindow || !overlaySettingsWindow) return
-  const ob = overlayWindow.getBounds()
+/**
+ * 按阅读条周围可用空间布局设置窗：
+ * - 选上下空余更大的一侧
+ * - 高度默认 380，空间不够则压缩到该侧可用高度（完整落在工作区内）
+ * - 不改动 overlayWindow bounds
+ */
+function layoutOverlaySettings(args?: { width?: number; height?: number }) {
+  if (!overlaySettingsWindow || overlaySettingsWindow.isDestroyed()) {
+    return { ok: false as const, width: 0, height: 0, capped: false, side: 'below' as const }
+  }
   const sb = overlaySettingsWindow.getBounds()
-  const margin = 10
-  const gap = 10
+  const width = clamp(
+    Math.round(Number(args?.width ?? sb.width) || OVERLAY_SETTINGS_DEFAULT.width),
+    280,
+    420
+  )
+  const preferredH = clamp(
+    Math.round(Number(args?.height ?? OVERLAY_SETTINGS_DEFAULT.height) || OVERLAY_SETTINGS_DEFAULT.height),
+    OVERLAY_SETTINGS_MIN_H,
+    520
+  )
+
+  if (!overlayWindow || overlayWindow.isDestroyed()) {
+    const next = clampToWorkArea({ x: sb.x, y: sb.y, width, height: preferredH })
+    overlaySettingsWindow.setBounds(next, false)
+    return { ok: true as const, width: next.width, height: next.height, capped: next.height < preferredH, side: 'below' as const }
+  }
+
+  const ob = overlayWindow.getBounds()
   const display = screen.getDisplayMatching(ob)
   const wa = display.workArea
+  const gap = 10
+  const margin = 10
+  const spaceBelow = Math.max(0, wa.y + wa.height - (ob.y + ob.height + gap))
+  const spaceAbove = Math.max(0, ob.y - gap - wa.y)
+  const placeBelow = spaceBelow >= spaceAbove
+  const avail = placeBelow ? spaceBelow : spaceAbove
 
-  const preferBelow = Math.round(ob.y + ob.height + gap)
-  const preferAbove = Math.round(ob.y - sb.height - gap)
-  const fitsBelow = preferBelow + sb.height <= wa.y + wa.height
-  const fitsAbove = preferAbove >= wa.y
+  // 有侧向空位：压到该侧可用高度；两侧都几乎没缝时，仍不碰阅读条，只在工作区内夹紧
+  let height = preferredH
+  if (avail > 0) {
+    height = Math.min(preferredH, avail)
+    height = Math.max(Math.min(OVERLAY_SETTINGS_MIN_H, avail), height)
+  } else {
+    height = Math.min(preferredH, wa.height)
+  }
 
-  let x = Math.round(ob.x + ob.width - sb.width - margin)
-  let y = fitsBelow ? preferBelow : fitsAbove ? preferAbove : clamp(Math.round(ob.y + ob.height + gap), wa.y, wa.y + wa.height - sb.height)
+  let x = Math.round(ob.x + ob.width - width - margin)
+  let y = placeBelow ? Math.round(ob.y + ob.height + gap) : Math.round(ob.y - height - gap)
+  const next = clampToWorkArea({ x, y, width, height })
+  overlaySettingsWindow.setBounds(next, false)
+  return {
+    ok: true as const,
+    width: next.width,
+    height: next.height,
+    capped: next.height < preferredH - 1,
+    side: placeBelow ? ('below' as const) : ('above' as const)
+  }
+}
 
-  overlaySettingsWindow.setBounds(clampToWorkArea({ x, y, width: sb.width, height: sb.height }), false)
+function positionOverlaySettings() {
+  layoutOverlaySettings()
+}
+
+function resizeOverlaySettings(args: { width?: number; height?: number }) {
+  // 渲染进程只允许改宽；高度由默认值 + 可用空间决定，避免按内容撑破外框
+  return layoutOverlaySettings({
+    width: args?.width,
+    height: OVERLAY_SETTINGS_DEFAULT.height
+  })
 }
 
 function syncAuxPositions() {
@@ -435,6 +904,11 @@ function broadcastOverlaySession(session: unknown) {
   overlayWindow?.webContents.send('overlay:session', session)
   overlayToolbarWindow?.webContents.send('overlay:session', session)
   overlaySettingsWindow?.webContents.send('overlay:session', session)
+  try {
+    rebuildTrayMenu?.()
+  } catch {
+    /* ignore */
+  }
 }
 
 /** 书架删除书籍后：若阅读条正读着该书，清空会话避免后续 IPC 读库抛错 */
@@ -462,7 +936,7 @@ function broadcastOverlayKMode(enabled: boolean) {
   overlaySettingsWindow?.webContents.send('overlay:kMode', { enabled: Boolean(enabled) })
 }
 
-function broadcastOverlayToast(payload: { type: 'error' | 'info'; message: string; detail?: string }) {
+function broadcastOverlayToast(payload: { type: 'error' | 'info'; message: string; detail?: string; durationMs?: number }) {
   overlayWindow?.webContents.send('overlay:toast', payload)
   overlayToolbarWindow?.webContents.send('overlay:toast', payload)
   overlaySettingsWindow?.webContents.send('overlay:toast', payload)
@@ -477,16 +951,32 @@ function registerShortcuts() {
 }
 
 app.whenReady().then(() => {
+  const dockLogo = loadAppLogo(128)
+  if (!dockLogo.isEmpty() && process.platform === 'darwin') {
+    try {
+      app.dock?.setIcon(dockLogo)
+    } catch {
+      /* ignore */
+    }
+  }
   createMainWindow()
   createOverlayWindow()
+  ensureTray()
   registerShortcuts()
 
   overlayWindow?.on('move', requestSyncAuxPositions)
   overlayWindow?.on('resize', () => {
     requestSyncAuxPositions()
+    scheduleSaveOverlayBounds()
   })
-  overlayWindow?.on('moved', syncAuxPositions)
-  overlayWindow?.on('resized', syncAuxPositions)
+  overlayWindow?.on('moved', () => {
+    syncAuxPositions()
+    scheduleSaveOverlayBounds()
+  })
+  overlayWindow?.on('resized', () => {
+    syncAuxPositions()
+    scheduleSaveOverlayBounds()
+  })
   overlayWindow?.on('show', () => {
     syncAuxPositions()
     broadcastOverlayBounds()
@@ -496,6 +986,7 @@ app.whenReady().then(() => {
   overlayWindow?.on('hide', () => {
     stopOverlayMove()
     hideAuxWindows()
+    scheduleSaveOverlayBounds()
   })
   overlayWindow?.on('closed', () => {
     stopOverlayMove()
@@ -509,87 +1000,140 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow()
       createOverlayWindow()
+    } else {
+      showMainLibrary()
     }
   })
 })
 
+app.on('before-quit', () => {
+  isQuitting = true
+  saveOverlayBoundsNow()
+})
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // 有托盘时保持常驻；仅非 darwin 且用户主动退出时才结束
+  if (process.platform !== 'darwin' && isQuitting) app.quit()
 })
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  try {
+    appTray?.destroy()
+  } catch {
+    /* ignore */
+  }
+  appTray = null
 })
 
-ipcMain.handle('overlay:setConfig', (_evt, cfg: { opacity?: number; contentProtection?: boolean }) => {
+ipcHandleTrusted('main:hideToTray', () => hideMainToTray())
+ipcHandleTrusted('main:showLibrary', () => {
+  showMainLibrary()
+  return { ok: true }
+})
+ipcHandleTrusted('main:setLayoutMode', (_evt, args: { mode: 'capsule' | 'manage' }) => {
+  if (!isValidLayoutMode(args?.mode)) throw new Error('INVALID_LAYOUT_MODE')
+  if (args.mode === 'capsule') return hideMainToTray()
+  showMainLibrary()
+  return { ok: true }
+})
+
+ipcHandleTrusted('overlay:setConfig', (_evt, cfg: { opacity?: number; contentProtection?: boolean }) => {
   if (!overlayWindow) return
-  if (typeof cfg.opacity === 'number') overlayWindow.setOpacity(cfg.opacity)
-  if (typeof cfg.contentProtection === 'boolean') applyOverlayContentProtection(cfg.contentProtection)
+  if (typeof cfg?.opacity === 'number' && Number.isFinite(cfg.opacity)) overlayWindow.setOpacity(cfg.opacity)
+  if (typeof cfg?.contentProtection === 'boolean') applyOverlayContentProtection(cfg.contentProtection)
 })
 
-ipcMain.handle('library:listBooks', () => {
+ipcHandleTrusted('library:listBooks', () => {
   return { books: listBooks() }
 })
 
-ipcMain.handle('library:getBook', (_evt, args: { bookId: string }) => {
-  return getBook(args.bookId)
+ipcHandleTrusted('library:getBook', (_evt, args: { bookId: string }) => {
+  const bookId = String(args?.bookId ?? '').trim()
+  if (!isNonEmptyString(bookId, { maxLength: 128 })) throw new Error('INVALID_BOOK_ID')
+  return getBook(bookId)
 })
 
-ipcMain.handle(
+ipcHandleTrusted(
   'library:importTxt',
   (_evt, args: { title: string; sourceRef: string; items: Array<{ title: string; contentText: string }> }) => {
-    return importTxtBook(args)
+    const title = String(args?.title ?? '').trim()
+    const sourceRef = String(args?.sourceRef ?? '').trim()
+    const items = Array.isArray(args?.items) ? args.items : []
+    if (!isNonEmptyString(title, { maxLength: 200 })) throw new Error('INVALID_TITLE')
+    if (!isNonEmptyString(sourceRef, { maxLength: 2048 })) throw new Error('INVALID_SOURCE_REF')
+    if (items.length === 0 || items.length > 500) throw new Error('INVALID_ITEMS')
+    for (const it of items) {
+      if (!isPlainObject(it)) throw new Error('INVALID_ITEMS')
+      if (!isNonEmptyString((it as { title?: unknown }).title, { maxLength: 200 })) throw new Error('INVALID_ITEMS')
+      if (!isNonEmptyString((it as { contentText?: unknown }).contentText, { minLength: 1, maxLength: 1_000_000 })) throw new Error('INVALID_ITEMS')
+    }
+    return importTxtBook({ title, sourceRef, items: items as Array<{ title: string; contentText: string }> })
   }
 )
 
-ipcMain.handle('library:renameBook', (_evt, args: { bookId: string; title: string }) => {
-  return renameBook(args.bookId, args.title)
+ipcHandleTrusted('library:renameBook', (_evt, args: { bookId: string; title: string }) => {
+  const bookId = String(args?.bookId ?? '').trim()
+  const title = String(args?.title ?? '').trim()
+  if (!isNonEmptyString(bookId, { maxLength: 128 })) throw new Error('INVALID_BOOK_ID')
+  if (!isNonEmptyString(title, { maxLength: 200 })) throw new Error('INVALID_TITLE')
+  return renameBook(bookId, title)
 })
 
-ipcMain.handle('book:rename', (_evt, args: { bookId: string; newTitle: string }) => {
-  return updateBookTitle(String(args?.bookId ?? ''), String(args?.newTitle ?? ''))
+ipcHandleTrusted('book:rename', (_evt, args: { bookId: string; newTitle: string }) => {
+  const bookId = String(args?.bookId ?? '').trim()
+  const newTitle = String(args?.newTitle ?? '').trim()
+  if (!isNonEmptyString(bookId, { maxLength: 128 })) throw new Error('INVALID_BOOK_ID')
+  return updateBookTitle(bookId, newTitle)
 })
 
-ipcMain.handle('book:delete', (_evt, args: { bookId: string }) => {
+ipcHandleTrusted('book:delete', (_evt, args: { bookId: string }) => {
   const id = String(args?.bookId ?? '').trim()
+  if (!isNonEmptyString(id, { maxLength: 128 })) throw new Error('INVALID_BOOK_ID')
   const res = deleteBook(id)
   clearOverlaySessionIfBooksRemoved([id])
   return res
 })
 
-ipcMain.handle('book:deleteMany', (_evt, args: { bookIds: string[] }) => {
-  const bookIds = Array.isArray(args?.bookIds) ? args.bookIds.map(String).filter(Boolean) : []
+ipcHandleTrusted('book:deleteMany', (_evt, args: { bookIds: string[] }) => {
+  const bookIds = isStringArray(args?.bookIds, { maxLength: 128 }) ? args.bookIds.map((x) => String(x).trim()) : []
+  if (!bookIds.length) throw new Error('INVALID_BOOK_IDS')
   const res = deleteBooks({ bookIds })
   clearOverlaySessionIfBooksRemoved(bookIds)
   return res
 })
 
-ipcMain.handle('book:search', (_evt, args: { query: string }) => {
-  return { books: searchBooks(String(args?.query ?? '')) }
+ipcHandleTrusted('book:search', (_evt, args: { query: string }) => {
+  const query = String(args?.query ?? '')
+  if (query.length > 500) throw new Error('INVALID_QUERY')
+  return { books: searchBooks(query) }
 })
 
-ipcMain.handle('library:listGroups', () => {
+ipcHandleTrusted('library:listGroups', () => {
   return { groups: listGroups() }
 })
 
-ipcMain.handle('library:createGroup', (_evt, args: { title: string; parentId?: string | null }) => {
+ipcHandleTrusted('library:createGroup', (_evt, args: { title: string; parentId?: string | null }) => {
   const title = String(args?.title ?? '').trim()
-  if (!title) throw new Error('INVALID_TITLE')
-  return createGroup({ title, parentId: args?.parentId ?? null })
+  const parentId = args?.parentId == null ? null : String(args.parentId).trim()
+  if (!isNonEmptyString(title, { maxLength: 200 })) throw new Error('INVALID_TITLE')
+  if (parentId !== null && !isNonEmptyString(parentId, { maxLength: 128 })) throw new Error('INVALID_PARENT')
+  return createGroup({ title, parentId })
 })
 
-ipcMain.handle('library:renameGroup', (_evt, args: { groupId: string; title: string }) => {
-  const groupId = String(args?.groupId ?? '')
+ipcHandleTrusted('library:renameGroup', (_evt, args: { groupId: string; title: string }) => {
+  const groupId = String(args?.groupId ?? '').trim()
   const title = String(args?.title ?? '').trim()
-  if (!groupId) throw new Error('INVALID_GROUP')
-  if (!title) throw new Error('INVALID_TITLE')
+  if (!isNonEmptyString(groupId, { maxLength: 128 })) throw new Error('INVALID_GROUP')
+  if (!isNonEmptyString(title, { maxLength: 200 })) throw new Error('INVALID_TITLE')
   return renameGroup(groupId, title)
 })
 
-ipcMain.handle('library:deleteGroup', (_evt, args: { groupId: string; mode: 'keepBooks' | 'deleteBooks' }) => {
-  const groupId = String(args?.groupId ?? '')
-  const mode = args?.mode === 'deleteBooks' ? 'deleteBooks' : 'keepBooks'
-  if (!groupId) throw new Error('INVALID_GROUP')
+ipcHandleTrusted('library:deleteGroup', (_evt, args: { groupId: string; mode: 'keepBooks' | 'deleteBooks' }) => {
+  const groupId = String(args?.groupId ?? '').trim()
+  const mode = args?.mode
+  if (!isNonEmptyString(groupId, { maxLength: 128 })) throw new Error('INVALID_GROUP')
+  if (!isValidDeleteGroupMode(mode)) throw new Error('INVALID_DELETE_MODE')
   const res = deleteGroup({ groupId, mode })
   if (Array.isArray(res.deletedBookIds) && res.deletedBookIds.length) {
     clearOverlaySessionIfBooksRemoved(res.deletedBookIds)
@@ -597,45 +1141,64 @@ ipcMain.handle('library:deleteGroup', (_evt, args: { groupId: string; mode: 'kee
   return res
 })
 
-ipcMain.handle('library:moveBooks', (_evt, args: { bookIds: string[]; groupId: string | null }) => {
-  const bookIds = Array.isArray(args?.bookIds) ? args.bookIds.map(String).filter(Boolean) : []
-  const groupId = args?.groupId ? String(args.groupId) : null
+ipcHandleTrusted('library:moveBooks', (_evt, args: { bookIds: string[]; groupId: string | null }) => {
+  const bookIds = isStringArray(args?.bookIds, { maxLength: 128 }) ? args.bookIds.map((x) => String(x).trim()) : []
+  const groupId = args?.groupId == null ? null : String(args.groupId).trim()
+  if (groupId !== null && !isNonEmptyString(groupId, { maxLength: 128 })) throw new Error('INVALID_GROUP')
   return moveBooks({ bookIds, groupId })
 })
 
-ipcMain.handle('library:deleteBooks', (_evt, args: { bookIds: string[] }) => {
-  const bookIds = Array.isArray(args?.bookIds) ? args.bookIds.map(String).filter(Boolean) : []
+ipcHandleTrusted('library:deleteBooks', (_evt, args: { bookIds: string[] }) => {
+  const bookIds = isStringArray(args?.bookIds, { maxLength: 128 }) ? args.bookIds.map((x) => String(x).trim()) : []
+  if (!bookIds.length) throw new Error('INVALID_BOOK_IDS')
   const res = deleteBooks({ bookIds })
   clearOverlaySessionIfBooksRemoved(bookIds)
   return res
 })
 
-ipcMain.handle(
+ipcHandleTrusted(
   'library:importWebItem',
   (_evt, args: { title: string; sourceUrl: string; contentText: string; domain: string | null; bookId?: string | null }) => {
-    if (!args?.contentText || !String(args.contentText).trim()) throw new Error('EMPTY_CONTENT')
-    const title = sanitizeWebBookShelfTitle(String(args.title ?? ''))
-    return importWebItem({ ...args, title })
+    const title = sanitizeWebBookShelfTitle(String(args?.title ?? ''))
+    const sourceUrl = String(args?.sourceUrl ?? '').trim()
+    const contentText = String(args?.contentText ?? '').trim()
+    const domain = args?.domain == null ? null : String(args.domain).trim() || null
+    const bookId = args?.bookId == null ? null : String(args.bookId).trim() || null
+    if (!isNonEmptyString(title, { maxLength: 200 })) throw new Error('INVALID_TITLE')
+    if (!isValidHttpUrl(sourceUrl)) throw new Error('INVALID_URL')
+    if (!isNonEmptyString(contentText, { minLength: 1, maxLength: 1_000_000 })) throw new Error('EMPTY_CONTENT')
+    if (domain !== null && !isNonEmptyString(domain, { maxLength: 255 })) throw new Error('INVALID_DOMAIN')
+    if (bookId !== null && !isNonEmptyString(bookId, { maxLength: 128 })) throw new Error('INVALID_BOOK_ID')
+    return importWebItem({ title, sourceUrl, contentText, domain, bookId })
   }
 )
 
-ipcMain.handle(
+ipcHandleTrusted(
   'library:importWebBook',
   (
     _evt,
     args: { bookTitle: string; detailUrl: string; domain: string | null; introText?: string | null; chapters: Array<{ title: string; url: string }> }
   ) => {
     const detailUrl = String(args?.detailUrl ?? '').trim()
-    if (!/^https?:\/\//i.test(detailUrl)) throw new Error('INVALID_URL')
     const bookTitle = sanitizeWebBookShelfTitle(String(args?.bookTitle ?? ''))
     const chapters = Array.isArray(args?.chapters) ? args.chapters : []
-    if (chapters.length === 0) throw new Error('EMPTY_TOC')
-    return importWebBook({ bookTitle, detailUrl, domain: args?.domain ?? null, introText: args?.introText ?? null, chapters })
+    const introText = args?.introText == null ? null : String(args.introText).trim() || null
+    const domain = args?.domain == null ? null : String(args.domain).trim() || null
+    if (!isNonEmptyString(bookTitle, { maxLength: 200 })) throw new Error('INVALID_TITLE')
+    if (!isValidHttpUrl(detailUrl)) throw new Error('INVALID_URL')
+    if (domain !== null && !isNonEmptyString(domain, { maxLength: 255 })) throw new Error('INVALID_DOMAIN')
+    if (introText !== null && !isNonEmptyString(introText, { maxLength: 20000 })) throw new Error('INVALID_INTRO')
+    if (!isChapterList(chapters)) throw new Error('INVALID_TOC')
+    return importWebBook({ bookTitle, detailUrl, domain, introText, chapters })
   }
 )
 
-ipcMain.handle('library:updateItemContent', (_evt, args: { itemId: string; contentText: string }) => {
-  return updateItemContent({ itemId: String(args?.itemId ?? ''), contentText: String(args?.contentText ?? '') })
+ipcHandleTrusted('library:updateItemContent', (_evt, args: { itemId: string; contentText: string }) => {
+  const itemId = String(args?.itemId ?? '').trim()
+  const contentText = String(args?.contentText ?? '').trim()
+  if (!isNonEmptyString(itemId, { maxLength: 128 })) throw new Error('INVALID_ITEM_ID')
+  if (!isNonEmptyString(contentText, { minLength: 1, maxLength: 1_000_000 })) throw new Error('EMPTY_CONTENT')
+  return updateItemContent({ itemId, contentText })
 })
 
 let webWindow: BrowserWindow | null = null
@@ -647,22 +1210,34 @@ function ensureWebWindow() {
     height: 760,
     show: false,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
+      // 不可信网页：禁止挂应用 preload，避免暴露 window.api
+      nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      partition: 'persist:web-import'
     }
   })
+  attachWindowSecurity(webWindow, 'web')
+  try {
+    webWindow.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => {
+      callback(false)
+    })
+  } catch {
+    /* ignore */
+  }
   webWindow.on('closed', () => {
     webWindow = null
   })
   return webWindow
 }
 
-ipcMain.handle('web:open', async (_evt, args: { url: string }) => {
+ipcHandleTrusted('web:open', async (_evt, args: { url: string }) => {
   if (!args?.url) throw new Error('INVALID_URL')
   const w = ensureWebWindow()
   const url = String(args.url).trim()
-  if (!/^https?:\/\//i.test(url)) throw new Error('INVALID_URL')
+  if (!isValidHttpUrl(url)) throw new Error('INVALID_URL')
   const ua = getWebImportUserAgent()
   w.webContents.setUserAgent(ua)
   let origin = ''
@@ -682,7 +1257,7 @@ ipcMain.handle('web:open', async (_evt, args: { url: string }) => {
   return { ok: true }
 })
 
-ipcMain.handle('web:extract', async () => {
+ipcHandleTrusted('web:extract', async () => {
   if (!webWindow || webWindow.isDestroyed()) {
     throw webExtractErr('NO_WEB_WINDOW', '未检测到已打开的网页窗口，请先点击“打开网页”。')
   }
@@ -717,6 +1292,7 @@ ipcMain.handle('web:extract', async () => {
 })
 
 async function loadUrlInWebWindow(url: string) {
+  if (!isValidHttpUrl(url)) throw webExtractErr('INVALID_URL', '无效或不安全的 URL。')
   const w = ensureWebWindow()
   const ua = getWebImportUserAgent()
   w.webContents.setUserAgent(ua)
@@ -751,7 +1327,7 @@ async function ensureWebItemContentFromSource(itemId: string): Promise<EnsureWeb
       return { contentText: existing, nextResolved: null }
     }
     const url = String(item.sourceUrl ?? '').trim()
-    if (!url || !/^https?:\/\//i.test(url)) {
+    if (!url || !isValidHttpUrl(url)) {
       return { contentText: null, nextResolved: null, fetchError: 'NO_SOURCE_URL' }
     }
     const w = await loadUrlInWebWindow(url)
@@ -808,9 +1384,9 @@ function resolveOverlayLinesWithEnsure(itemContentText: string, ensured: EnsureW
   return lines
 }
 
-ipcMain.handle('web:extractAtUrl', async (_evt, args: { url: string }) => {
+ipcHandleTrusted('web:extractAtUrl', async (_evt, args: { url: string }) => {
   const url = String(args?.url ?? '').trim()
-  if (!/^https?:\/\//i.test(url)) throw webExtractErr('INVALID_URL', '无效 URL。')
+  if (!isValidHttpUrl(url)) throw webExtractErr('INVALID_URL', '无效或不安全的 URL。')
   const w = await loadUrlInWebWindow(url)
   w.show()
   const wc = w.webContents
@@ -839,9 +1415,9 @@ ipcMain.handle('web:extractAtUrl', async (_evt, args: { url: string }) => {
 })
 
 
-ipcMain.handle('web:extractStructuredAtUrl', async (_evt, args: { url: string }) => {
+ipcHandleTrusted('web:extractStructuredAtUrl', async (_evt, args: { url: string }) => {
   const url = String(args?.url ?? '').trim()
-  if (!/^https?:\/\//i.test(url)) throw webExtractErr('INVALID_URL', '无效 URL。')
+  if (!isValidHttpUrl(url)) throw webExtractErr('INVALID_URL', '无效或不安全的 URL。')
 
   const w = await loadUrlInWebWindow(url)
   w.show()
@@ -894,7 +1470,7 @@ ipcMain.handle('web:extractStructuredAtUrl', async (_evt, args: { url: string })
   }
 })
 
-ipcMain.handle('web:refresh', async () => {
+ipcHandleTrusted('web:refresh', async () => {
   if (!webWindow || webWindow.isDestroyed()) {
     throw webExtractErr('NO_WEB_WINDOW', '未检测到已打开的网页窗口，请先点击“打开网页”。')
   }
@@ -904,7 +1480,7 @@ ipcMain.handle('web:refresh', async () => {
   return { ok: true, url: wc.getURL() }
 })
 
-ipcMain.handle(
+ipcHandleTrusted(
   'web:extractFromSelection',
   async (
     _evt,
@@ -1124,7 +1700,7 @@ ipcMain.handle(
   }
 )
 
-ipcMain.handle('web:extractBookDetail', async () => {
+ipcHandleTrusted('web:extractBookDetail', async () => {
   if (!webWindow || webWindow.isDestroyed()) {
     throw webExtractErr('NO_WEB_WINDOW', '未检测到已打开的网页窗口，请先点击“打开网页”。')
   }
@@ -1411,7 +1987,7 @@ ipcMain.handle('web:extractBookDetail', async () => {
   const currentHref = normalizeHref(wc.getURL())
   const tocHref = tocUrlCandidate ? normalizeHref(tocUrlCandidate) : ''
   const shouldFollowToc =
-    Boolean(tocUrlCandidate && /^https?:\/\//i.test(tocUrlCandidate)) &&
+    Boolean(tocUrlCandidate && isValidHttpUrl(tocUrlCandidate)) &&
     tocHref !== currentHref &&
     (ch0.length === 0 || ch0.length === 1)
 
@@ -1455,7 +2031,7 @@ ipcMain.handle('web:extractBookDetail', async () => {
     for (const jump of backUrls || []) {
       if (hops >= 4) break
       const j = String(jump || '').trim()
-      if (!/^https?:\/\//i.test(j)) continue
+      if (!isValidHttpUrl(j)) continue
       if (normalizeHref(j) === normalizeHref(wc.getURL())) continue
       hops += 1
       await loadUrlInWebWindow(j)
@@ -1486,17 +2062,17 @@ ipcMain.handle('web:extractBookDetail', async () => {
   return { detailUrl, domain, bookTitle, introText, chapters, tocStatus }
 })
 
-ipcMain.handle('web:close', () => {
+ipcHandleTrusted('web:close', () => {
   if (!webWindow || webWindow.isDestroyed()) return { ok: true }
   webWindow.close()
   return { ok: true }
 })
 
-ipcMain.handle('overlay:getSession', () => {
+ipcHandleTrusted('overlay:getSession', () => {
   return getOverlaySession()
 })
 
-ipcMain.handle(
+ipcHandleTrusted(
   'overlay:pushSession',
   (_evt, args: { bookId: string; itemId: string; lines: string[]; lineIndex?: number; playing?: boolean }) => {
     const lineIndex = Math.max(0, Number(args.lineIndex ?? 0))
@@ -1511,7 +2087,7 @@ ipcMain.handle(
   }
 )
 
-ipcMain.handle('overlay:clearWebNextCandidates', () => {
+ipcHandleTrusted('overlay:clearWebNextCandidates', () => {
   const cur = getOverlaySession()
   if (!cur) return { ok: false }
   const next: OverlaySession = { ...cur, webNextCandidates: undefined }
@@ -1520,7 +2096,7 @@ ipcMain.handle('overlay:clearWebNextCandidates', () => {
   return { ok: true }
 })
 
-ipcMain.handle('overlay:resume', async (_evt, args: { bookId: string; cols?: number }) => {
+ipcHandleTrusted('overlay:resume', async (_evt, args: { bookId: string; cols?: number }) => {
   let items: ReturnType<typeof getBook>['items']
   let progress: ReturnType<typeof getBook>['progress']
   try {
@@ -1619,7 +2195,7 @@ function resolveSteppedItemIndexForEpub(
   return g.preferredIdx
 }
 
-ipcMain.handle('overlay:chapterStep', async (_evt, args: { delta: number }) => {
+ipcHandleTrusted('overlay:chapterStep', async (_evt, args: { delta: number }) => {
   const cur = getOverlaySession()
   if (!cur) return { ok: false }
   let items: ReturnType<typeof getBook>['items']
@@ -1668,13 +2244,13 @@ ipcMain.handle('overlay:chapterStep', async (_evt, args: { delta: number }) => {
   return { ok: true, itemId: nextItemId }
 })
 
-ipcMain.handle('progress:set', (_evt, args: { bookId: string; itemId: string; lineIndex: number }) => {
+ipcHandleTrusted('progress:set', (_evt, args: { bookId: string; itemId: string; lineIndex: number }) => {
   const updatedAt = Date.now()
   upsertProgress({ bookId: args.bookId, itemId: args.itemId, lineIndex: Math.max(0, Math.floor(args.lineIndex)), updatedAt })
   return { ok: true }
 })
 
-ipcMain.handle('overlay:setPlaying', (_evt, args: { playing: boolean }) => {
+ipcHandleTrusted('overlay:setPlaying', (_evt, args: { playing: boolean }) => {
   const cur = getOverlaySession()
   if (!cur) return { ok: false }
   const next = { ...cur, playing: Boolean(args.playing) }
@@ -1683,7 +2259,7 @@ ipcMain.handle('overlay:setPlaying', (_evt, args: { playing: boolean }) => {
   return { ok: true }
 })
 
-ipcMain.handle('overlay:syncLineIndex', (_evt, args: { lineIndex: number }) => {
+ipcHandleTrusted('overlay:syncLineIndex', (_evt, args: { lineIndex: number }) => {
   const cur = getOverlaySession()
   if (!cur) return { ok: false }
   const lineIndex = Math.max(0, Math.floor(Number(args?.lineIndex ?? 0)))
@@ -1693,7 +2269,7 @@ ipcMain.handle('overlay:syncLineIndex', (_evt, args: { lineIndex: number }) => {
   return { ok: true }
 })
 
-ipcMain.handle('overlay:forceRepaint', () => {
+ipcHandleTrusted('overlay:forceRepaint', () => {
   if (!overlayWindow || overlayWindow.isDestroyed()) return { ok: false }
   for (const t of overlayRepaintPulseTimers) clearTimeout(t)
   overlayRepaintPulseTimers = []
@@ -1742,7 +2318,7 @@ ipcMain.handle('overlay:forceRepaint', () => {
   return { ok: true }
 })
 
-ipcMain.handle('overlay:hide', () => {
+ipcHandleTrusted('overlay:hide', () => {
   const mainWasVisible = Boolean(mainWindow?.isVisible?.())
   const cur = getOverlaySession()
   if (cur) {
@@ -1764,12 +2340,12 @@ ipcMain.handle('overlay:hide', () => {
   return { ok: true }
 })
 
-ipcMain.handle('overlay:auxHideAll', () => {
+ipcHandleTrusted('overlay:auxHideAll', () => {
   hideAuxWindows()
   return { ok: true }
 })
 
-ipcMain.handle('overlay:auxHideAllSmart', () => {
+ipcHandleTrusted('overlay:auxHideAllSmart', () => {
   // 当 overlay 失焦是因为用户点击了“设置窗内部控件”时，不要把设置窗立刻隐藏。
   // 但工具栏始终可以收起，避免遮挡。
   const focused = BrowserWindow.getFocusedWindow()
@@ -1784,7 +2360,7 @@ ipcMain.handle('overlay:auxHideAllSmart', () => {
   return { ok: true, keptSettings: focusedIsSettings }
 })
 
-ipcMain.handle('overlay:toolbarToggle', () => {
+ipcHandleTrusted('overlay:toolbarToggle', () => {
   const w = ensureOverlayToolbarWindow()
   if (!overlayWindow?.isVisible()) overlayWindow?.show()
   if (w.isVisible()) w.hide()
@@ -1796,18 +2372,20 @@ ipcMain.handle('overlay:toolbarToggle', () => {
   return { ok: true, visible: w.isVisible() }
 })
 
-ipcMain.handle('overlay:settingsToggle', () => {
+ipcHandleTrusted('overlay:settingsToggle', () => {
   const w = ensureOverlaySettingsWindow()
   if (!overlayWindow?.isVisible()) overlayWindow?.show()
   if (w.isVisible()) w.hide()
   else {
-    positionOverlaySettings()
+    // 打开设置时收起工具栏，避免贴顶场景下两者叠在同一侧互相遮挡
+    overlayToolbarWindow?.hide()
+    layoutOverlaySettings()
     w.show()
   }
   return { ok: true, visible: w.isVisible() }
 })
 
-ipcMain.handle('overlay:toolbarShow', () => {
+ipcHandleTrusted('overlay:toolbarShow', () => {
   const w = ensureOverlayToolbarWindow()
   if (!overlayWindow?.isVisible()) overlayWindow?.show()
   positionOverlayToolbar()
@@ -1816,31 +2394,37 @@ ipcMain.handle('overlay:toolbarShow', () => {
   return { ok: true }
 })
 
-ipcMain.handle('overlay:toolbarHide', () => {
+ipcHandleTrusted('overlay:toolbarHide', () => {
   overlayToolbarWindow?.hide()
   return { ok: true }
 })
 
-ipcMain.handle('overlay:settingsShow', () => {
+ipcHandleTrusted('overlay:settingsShow', () => {
   const w = ensureOverlaySettingsWindow()
   if (!overlayWindow?.isVisible()) overlayWindow?.show()
-  positionOverlaySettings()
+  // 打开设置时收起工具栏，避免贴顶场景下两者叠在同一侧互相遮挡
+  overlayToolbarWindow?.hide()
+  layoutOverlaySettings()
   // 不强制抢焦点，避免与 Overlay/工具栏的焦点切换产生闪烁
   w.showInactive()
   return { ok: true }
 })
 
-ipcMain.handle('overlay:settingsHide', () => {
+ipcHandleTrusted('overlay:settingsHide', () => {
   overlaySettingsWindow?.hide()
   return { ok: true }
 })
 
-ipcMain.handle('overlay:getBounds', () => {
+ipcHandleTrusted('overlay:settingsResize', (_evt, args: { width?: number; height?: number }) => {
+  return resizeOverlaySettings(args || {})
+})
+
+ipcHandleTrusted('overlay:getBounds', () => {
   if (!overlayWindow) return null
   return overlayWindow.getBounds()
 })
 
-ipcMain.handle('overlay:step', (_evt, args: { delta: number }) => {
+ipcHandleTrusted('overlay:step', (_evt, args: { delta: number }) => {
   const cur = getOverlaySession()
   if (!cur) return { ok: false }
   const d = Number(args.delta ?? 0)
@@ -1852,50 +2436,55 @@ ipcMain.handle('overlay:step', (_evt, args: { delta: number }) => {
   return { ok: true, lineIndex: nextIdx }
 })
 
-ipcMain.handle('overlay:stepDisplay', (_evt, args: { delta: number }) => {
+ipcHandleTrusted('overlay:stepDisplay', (_evt, args: { delta: number }) => {
   if (!overlayWindow || overlayWindow.isDestroyed()) return { ok: false }
   const delta = Math.trunc(Number(args?.delta ?? 0))
   overlayWindow.webContents.send('overlay:stepDisplay', { delta })
   return { ok: true }
 })
 
-ipcMain.handle('overlay:kModeSet', (_evt, args: { enabled: boolean }) => {
+ipcHandleTrusted('overlay:kModeSet', (_evt, args: { enabled: boolean }) => {
   const enabled = Boolean(args?.enabled)
   broadcastOverlayKMode(enabled)
   return { ok: true, enabled }
 })
 
-ipcMain.handle('overlay:setBounds', (_evt, args: { x?: number; y?: number; width?: number; height?: number }) => {
+ipcHandleTrusted('overlay:setBounds', (_evt, args: { x?: number; y?: number; width?: number; height?: number }) => {
   if (!overlayWindow) return { ok: false }
   const b = overlayWindow.getBounds()
-  const x = typeof args.x === 'number' ? Math.max(0, Math.floor(args.x)) : b.x
-  const y = typeof args.y === 'number' ? Math.max(0, Math.floor(args.y)) : b.y
+  const x = typeof args.x === 'number' ? Math.floor(args.x) : b.x
+  const y = typeof args.y === 'number' ? Math.floor(args.y) : b.y
   const width = typeof args.width === 'number' ? Math.max(220, Math.floor(args.width)) : b.width
   const height = typeof args.height === 'number' ? Math.max(40, Math.floor(args.height)) : b.height
   // 拖拽/缩放时禁用动画，否则会出现闪动与跟手差
   overlayWindow.setBounds({ ...b, x, y, width, height }, false)
+  scheduleSaveOverlayBounds()
   return { ok: true }
 })
 
-ipcMain.on('overlay:setBoundsFast', (_evt, args: { x?: number; y?: number; width?: number; height?: number }) => {
+ipcOnTrusted('overlay:setBoundsFast', (_evt, args: { x?: number; y?: number; width?: number; height?: number }) => {
   if (!overlayWindow) return
   const b = overlayWindow.getBounds()
-  const x = typeof args.x === 'number' ? Math.max(0, Math.floor(args.x)) : b.x
-  const y = typeof args.y === 'number' ? Math.max(0, Math.floor(args.y)) : b.y
+  const x = typeof args.x === 'number' ? Math.floor(args.x) : b.x
+  const y = typeof args.y === 'number' ? Math.floor(args.y) : b.y
   const width = typeof args.width === 'number' ? Math.max(220, Math.floor(args.width)) : b.width
   const height = typeof args.height === 'number' ? Math.max(40, Math.floor(args.height)) : b.height
   overlayWindow.setBounds({ ...b, x, y, width, height }, false)
+  scheduleSaveOverlayBounds()
 })
 
-ipcMain.on('overlay:moveStart', () => {
+ipcOnTrusted('overlay:moveStart', () => {
   startOverlayMove()
 })
 
-ipcMain.on('overlay:moveStop', () => {
+ipcOnTrusted('overlay:moveStop', () => {
   stopOverlayMove()
+  scheduleSaveOverlayBounds()
 })
 
-ipcMain.handle('overlay:restoreLast', async (_evt, args: { cols?: number }) => {
+ipcHandleTrusted('overlay:locate', () => locateOverlayBar())
+
+ipcHandleTrusted('overlay:restoreLast', async (_evt, args: { cols?: number }) => {
   const last = getLastProgress()
   if (!last) return null
   try {

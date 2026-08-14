@@ -183,6 +183,20 @@ export function OverlayView() {
   const [idx, setIdx] = useState<number>(0)
   const [playing, setPlaying] = useState<boolean>(false)
   const [focused, setFocused] = useState(false)
+  const [locateFlash, setLocateFlash] = useState(false)
+  const locateFlashTimerRef = useRef<number | null>(null)
+  const locateFlashRef = useRef(false)
+  locateFlashRef.current = locateFlash
+
+  function clearLocateFlashNow() {
+    if (!locateFlashRef.current && !locateFlashTimerRef.current) return
+    if (locateFlashTimerRef.current) {
+      window.clearTimeout(locateFlashTimerRef.current)
+      locateFlashTimerRef.current = null
+    }
+    locateFlashRef.current = false
+    setLocateFlash(false)
+  }
   const [kMode, setKMode] = useState<boolean>(() => Boolean(getJson(LS_KMODE, { enabled: false } as any)?.enabled))
   const [hotkeys, setHotkeys] = useState<HotkeyConfig>(() => normalizeHotkeysConfig(getJson<HotkeyConfig>(LS_HOTKEYS, getDefaultHotkeys())))
   const [bounds, setBounds] = useState<{ width: number; height: number } | null>(null)
@@ -294,12 +308,16 @@ export function OverlayView() {
   }
 
   // 与 JSX 样式保持一致的 padding（用于 rows/cols 与像素宽高的互算）
-  // 收紧文字与边框的留白，减少“框内空白感”
-  const PAD_X = 6
-  const PAD_Y = 6
-  const EXTRA_H = 8
-  // 给右侧留一点余量，避免不同平台的次像素/阴影导致“半个字被裁切”
-  const COL_FIT_SAFETY_PX = 0
+  // 随字号缩放：约 0.15em；左边“不贴边”主要来自这里 + 边框 + 正文段首空格/全角缩进
+  const fontSizePx = clamp(Math.floor(Number(cfg.fontSize ?? 16)), 10, 64)
+  const PAD_X = Math.max(2, Math.min(12, Math.round(fontSizePx * 0.15)))
+  const PAD_Y = Math.max(2, Math.min(10, Math.round(fontSizePx * 0.12)))
+  const EXTRA_H = Math.max(4, Math.min(16, Math.round(fontSizePx * 0.28)))
+  // 右边再留约 0.1 字宽，避免次像素裁切；随字号变
+  const COL_FIT_SAFETY_PX = Math.max(0, Math.round(fontSizePx * 0.1))
+  // 排版按常态 1px 边框算；定位高亮时边框加粗不改动行列，避免跳动
+  const frameBorderPx = 1
+  const resizeHandlePx = Math.max(10, Math.min(18, Math.round(fontSizePx * 0.7)))
 
   function splitToCols(s: string, cols: number) {
     const str = String(s ?? '')
@@ -335,15 +353,16 @@ export function OverlayView() {
     const cfgCols = cfgColsCap
     const { charW } = getTextMetrics({ fontSize: cfg.fontSize })
     const availFromHolder = holderLayout?.w
-    const availFromBounds = bounds ? Math.max(0, bounds.width - PAD_X * 2 - COL_FIT_SAFETY_PX) : 0
+    // bounds 是整窗；扣掉左右 padding + 边框，才是正文可用宽（与 holder contentRect 对齐）
+    const availFromBounds = bounds
+      ? Math.max(0, bounds.width - PAD_X * 2 - frameBorderPx * 2 - COL_FIT_SAFETY_PX)
+      : 0
     const avail = availFromHolder != null && availFromHolder > 0 ? availFromHolder : availFromBounds
     if (!avail) return cfgCols
-    // 略微“激进”一点，让行宽更贴近可用宽度，避免整体视觉偏右
-    // 不设下限 20：窄窗口时 floor(avail/charW) 常 <20，若强行 20 列会导致行宽超出可视区被边框裁切
-    const fitCols = Math.max(1, Math.floor((avail + charW * 0.1) / Math.max(1, charW)))
-    // 优先贴合当前可用像素宽度（含拖拽缩放中 holder 尺寸），避免“低于某宽度不重排”
+    // 略微“激进”一点，让行宽更贴近可用宽度，减少右侧大块空白
+    const fitCols = Math.max(1, Math.floor((avail + charW * 0.2) / Math.max(1, charW)))
     return fitCols
-  }, [bounds, cfg.fontSize, cfgColsCap, holderLayout?.w])
+  }, [bounds, cfg.fontSize, cfgColsCap, holderLayout?.w, PAD_X, COL_FIT_SAFETY_PX, frameBorderPx])
 
   const lines = useMemo(() => {
     const cols = effectiveCols
@@ -371,9 +390,10 @@ export function OverlayView() {
   }, [session, displayRows, idx, lines])
   const showPlaceholder = !session || lines.length === 0
   const topSafe = 0
-  const frameActive = focused && !kMode
-  // 背景是否可见：聚焦时按配置显示；失焦时完全透明（只留文字），保持“真正透明”的视觉目标
-  const effectiveBgOpacity = frameActive ? cfg.bgOpacity : 0
+  const frameActive = (focused && !kMode) || locateFlash
+  // 找回高亮时强制可见底/字，不改用户配置；结束后恢复
+  const paintTextOpacity = locateFlash ? Math.max(cfg.textOpacity, 0.92) : cfg.textOpacity
+  const effectiveBgOpacity = locateFlash ? Math.max(frameActive ? cfg.bgOpacity : 0, 0.35) : frameActive ? cfg.bgOpacity : 0
   const lineH = Math.round(clamp(Math.floor(Number(cfg.fontSize ?? 16)), 10, 64) * 1.25)
   const canvasCssH = Math.max(1, Math.floor(displayRows * lineH))
 
@@ -402,12 +422,12 @@ export function OverlayView() {
     const fontFamily = window.getComputedStyle(document.body).fontFamily || 'system-ui'
     ctx.font = `${fontSize}px ${fontFamily}`
     ctx.textBaseline = 'top'
-    ctx.fillStyle = withAlpha(cfg.textColor, cfg.textOpacity)
+    ctx.fillStyle = withAlpha(cfg.textColor, paintTextOpacity)
 
     const text = showPlaceholder ? '（还没有推送内容）' : visibleText
     const alpha = showPlaceholder ? 0.45 : 1
     // placeholder 用同色低透明度，避免引入额外背景
-    const base = withAlpha(cfg.textColor, clamp(cfg.textOpacity * alpha, 0, 1))
+    const base = withAlpha(cfg.textColor, clamp(paintTextOpacity * alpha, 0, 1))
     ctx.fillStyle = base
 
     const rows = displayRows
@@ -424,7 +444,7 @@ export function OverlayView() {
     cfg.fontSize,
     displayRows,
     cfg.textColor,
-    cfg.textOpacity,
+    paintTextOpacity,
     showPlaceholder,
     visibleText
   ])
@@ -649,31 +669,51 @@ export function OverlayView() {
   }, [idx])
 
   useEffect(() => {
+    const dismissToast = () => {
+      if (overlayToastTimerRef.current) {
+        window.clearTimeout(overlayToastTimerRef.current)
+        overlayToastTimerRef.current = null
+      }
+      setOverlayToast(null)
+    }
     const off =
       window.api?.overlayOnToast?.((payload) => {
-        const p = payload as { type?: string; message?: string; detail?: string }
+        const p = payload as { type?: string; message?: string; detail?: string; durationMs?: number }
         if (!p?.message) return
-        if (overlayToastTimerRef.current) {
-          window.clearTimeout(overlayToastTimerRef.current)
-          overlayToastTimerRef.current = null
-        }
+        dismissToast()
         setOverlayToast({
           type: p.type === 'error' ? 'error' : 'info',
           message: String(p.message),
           detail: p.detail ? String(p.detail) : undefined
         })
-        overlayToastTimerRef.current = window.setTimeout(() => {
-          setOverlayToast(null)
-          overlayToastTimerRef.current = null
-        }, p.type === 'error' ? 10_000 : 6500)
+        const fallback = p.type === 'error' ? 10_000 : 3200
+        const ms = typeof p.durationMs === 'number' && p.durationMs > 0 ? Math.floor(p.durationMs) : fallback
+        overlayToastTimerRef.current = window.setTimeout(dismissToast, ms)
       }) ?? null
     return () => {
       off?.()
-      if (overlayToastTimerRef.current) {
-        window.clearTimeout(overlayToastTimerRef.current)
-        overlayToastTimerRef.current = null
-      }
+      dismissToast()
     }
+  }, [])
+
+  useEffect(() => {
+    const off =
+      window.api?.overlayOnLocate?.(() => {
+        setFocused(true)
+        locateFlashRef.current = true
+        setLocateFlash(true)
+        // 仅作兜底：正常由用户在框内点击立即关闭蓝框
+        if (locateFlashTimerRef.current) {
+          window.clearTimeout(locateFlashTimerRef.current)
+          locateFlashTimerRef.current = null
+        }
+        locateFlashTimerRef.current = window.setTimeout(() => clearLocateFlashNow(), 30_000)
+      }) ?? null
+    return () => {
+      off?.()
+      clearLocateFlashNow()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -1154,8 +1194,8 @@ export function OverlayView() {
     const paddingX = PAD_X
     const paddingY = PAD_Y
     const { charW, lineH } = getTextMetrics({ fontSize })
-    const width = Math.round(cols * charW + paddingX * 2 + COL_FIT_SAFETY_PX)
-    const height = Math.round(rows * lineH + paddingY * 2 + EXTRA_H)
+    const width = Math.round(cols * charW + paddingX * 2 + frameBorderPx * 2 + COL_FIT_SAFETY_PX)
+    const height = Math.round(rows * lineH + paddingY * 2 + EXTRA_H + frameBorderPx * 2)
     await window.api?.overlaySetBounds?.({ width, height })
     setBounds({ width, height })
   }
@@ -1193,15 +1233,24 @@ export function OverlayView() {
 
   function calcRowsColsFromBounds(input: { width: number; height: number; fontSize: number }) {
     const fontSize = clamp(Math.floor(Number(input.fontSize ?? 16)), 10, 64)
-    const paddingX = PAD_X
-    const paddingY = PAD_Y
+    const padX = Math.max(2, Math.min(12, Math.round(fontSize * 0.15)))
+    const padY = Math.max(2, Math.min(10, Math.round(fontSize * 0.12)))
+    const extraH = Math.max(4, Math.min(16, Math.round(fontSize * 0.28)))
+    const safety = Math.max(0, Math.round(fontSize * 0.1))
+    const border = 1
     const { charW, lineH: lineHeight } = getTextMetrics({ fontSize })
-    // 与 applyBoundsFromCfg 的公式互逆：这里保守取整，避免抖动
-    const cols = Math.max(1, Math.floor((Math.max(0, input.width - paddingX * 2 - COL_FIT_SAFETY_PX) + charW * 0.35) / Math.max(1, charW)))
-    // 额外留一点余量给圆角/阴影；并扣掉 applyBoundsFromCfg 里加的 EXTRA_H
-    // 重要：rows 必须“保守不溢出”，否则 canvas 高度会比 holder 实际可用高度更大，
-    // 导致最后一行字下半部分/外框底边被窗口底缘裁剪。
-    const rows = Math.max(1, Math.floor(Math.max(0, input.height - paddingY * 2 - EXTRA_H) / Math.max(1, lineHeight)))
+    // 与 applyBoundsFromCfg / effectiveCols 互逆
+    const cols = Math.max(
+      1,
+      Math.floor(
+        (Math.max(0, input.width - padX * 2 - border * 2 - safety) + charW * 0.2) / Math.max(1, charW)
+      )
+    )
+    // 重要：rows 必须“保守不溢出”，否则最后一行会被窗口底缘裁剪
+    const rows = Math.max(
+      1,
+      Math.floor(Math.max(0, input.height - padY * 2 - extraH - border * 2) / Math.max(1, lineHeight))
+    )
     return { rows, cols }
   }
 
@@ -1284,6 +1333,8 @@ export function OverlayView() {
       }
       onPointerDown={(e) => {
         if (e.button !== 0) return
+        // 定位蓝框：框内任意一次点击/按下立即取消高亮
+        if (locateFlashRef.current) clearLocateFlashNow()
         if (resizeRef.current?.active) return
         if (!canStartWindowMoveFromTarget(e.target)) return
         // 新一轮手势前清理上次可能遗留的状态（如漏掉 pointerup/cancel）
@@ -1362,6 +1413,15 @@ export function OverlayView() {
       {overlayToast ? (
         <div
           data-nodrag="1"
+          role="status"
+          title="点击关闭"
+          onClick={() => {
+            if (overlayToastTimerRef.current) {
+              window.clearTimeout(overlayToastTimerRef.current)
+              overlayToastTimerRef.current = null
+            }
+            setOverlayToast(null)
+          }}
           style={{
             position: 'fixed',
             top: 10,
@@ -1379,34 +1439,12 @@ export function OverlayView() {
             border: '1px solid rgba(255,255,255,0.18)',
             boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
             pointerEvents: 'auto',
+            cursor: 'pointer',
             WebkitAppRegion: 'no-drag'
           } as any}
         >
           <div style={{ fontWeight: 600 }}>{overlayToast.message}</div>
           {overlayToast.detail ? <div style={{ marginTop: 4, opacity: 0.9, wordBreak: 'break-all' }}>{overlayToast.detail}</div> : null}
-          <button
-            type="button"
-            data-nodrag="1"
-            onClick={() => {
-              if (overlayToastTimerRef.current) {
-                window.clearTimeout(overlayToastTimerRef.current)
-                overlayToastTimerRef.current = null
-              }
-              setOverlayToast(null)
-            }}
-            style={{
-              marginTop: 8,
-              padding: '4px 10px',
-              borderRadius: 6,
-              border: '1px solid rgba(255,255,255,0.35)',
-              background: 'rgba(255,255,255,0.12)',
-              color: '#fff',
-              cursor: 'pointer',
-              fontSize: 12
-            }}
-          >
-            关闭
-          </button>
         </div>
       ) : null}
       <div
@@ -1491,7 +1529,12 @@ export function OverlayView() {
               // 外层不裁剪，避免工具栏和面板被裁掉
               overflow: 'visible',
               // 聚焦时用实线边框（避免 inset 阴影在透明窗口上下边被合成裁切）；失焦用透明边框保持布局不跳变
-              border: frameActive ? '1px solid rgba(255,255,255,0.55)' : '1px solid transparent'
+              border: locateFlash
+                ? '2px solid rgba(96,165,250,0.95)'
+                : frameActive
+                  ? '1px solid rgba(255,255,255,0.55)'
+                  : '1px solid transparent',
+              boxShadow: locateFlash ? '0 0 0 3px rgba(96,165,250,0.35)' : undefined
             } as any
           }
         >
@@ -1530,10 +1573,10 @@ export function OverlayView() {
               data-resize-handle="1"
               style={{
                 position: 'absolute',
-                right: 7,
-                bottom: 7,
-                width: 14,
-                height: 14,
+                right: Math.max(4, Math.round(PAD_X * 0.8)),
+                bottom: Math.max(4, Math.round(PAD_Y * 0.8)),
+                width: resizeHandlePx,
+                height: resizeHandlePx,
                 zIndex: 2,
                 WebkitAppRegion: 'no-drag',
                 cursor: 'nwse-resize',

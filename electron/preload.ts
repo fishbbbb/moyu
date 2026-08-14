@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld('api', {
   overlayToolbarHide: () => ipcRenderer.invoke('overlay:toolbarHide'),
   overlaySettingsShow: () => ipcRenderer.invoke('overlay:settingsShow'),
   overlaySettingsHide: () => ipcRenderer.invoke('overlay:settingsHide'),
+  overlaySettingsResize: (args: { width?: number; height?: number }) => ipcRenderer.invoke('overlay:settingsResize', args),
+  overlayLocate: () => ipcRenderer.invoke('overlay:locate'),
   overlayAuxHideAll: () => ipcRenderer.invoke('overlay:auxHideAll'),
   overlayAuxHideAllSmart: () => ipcRenderer.invoke('overlay:auxHideAllSmart'),
   overlayGetBounds: () => ipcRenderer.invoke('overlay:getBounds'),
@@ -76,6 +78,10 @@ contextBridge.exposeInMainWorld('api', {
   overlayClearWebNextCandidates: () => ipcRenderer.invoke('overlay:clearWebNextCandidates'),
 
   progressSet: (args: { bookId: string; itemId: string; lineIndex: number }) => ipcRenderer.invoke('progress:set', args),
+
+  mainSetLayoutMode: (args: { mode: 'capsule' | 'manage' }) => ipcRenderer.invoke('main:setLayoutMode', args),
+  mainHideToTray: () => ipcRenderer.invoke('main:hideToTray'),
+  mainShowLibrary: () => ipcRenderer.invoke('main:showLibrary'),
 
   overlayOnSession: (cb: (session: unknown) => void) => {
     const handler = (_evt: unknown, session: unknown) => cb(session)
@@ -105,6 +111,12 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_evt: unknown, payload: unknown) => cb(payload)
     ipcRenderer.on('overlay:toast', handler)
     return () => ipcRenderer.off('overlay:toast', handler)
+  },
+
+  overlayOnLocate: (cb: (payload: unknown) => void) => {
+    const handler = (_evt: unknown, payload: unknown) => cb(payload)
+    ipcRenderer.on('overlay:locate', handler)
+    return () => ipcRenderer.off('overlay:locate', handler)
   }
 })
 
@@ -164,6 +176,8 @@ export type Api = typeof globalThis & {
     overlayToolbarHide: () => Promise<unknown>
     overlaySettingsShow: () => Promise<unknown>
     overlaySettingsHide: () => Promise<unknown>
+    overlaySettingsResize: (args: { width?: number; height?: number }) => Promise<unknown>
+    overlayLocate: () => Promise<unknown>
     overlayAuxHideAll: () => Promise<unknown>
     overlayAuxHideAllSmart: () => Promise<unknown>
     overlayGetBounds: () => Promise<unknown>
@@ -178,11 +192,15 @@ export type Api = typeof globalThis & {
     overlayKModeSet: (enabled: boolean) => Promise<unknown>
 
     progressSet: (args: { bookId: string; itemId: string; lineIndex: number }) => Promise<unknown>
+    mainSetLayoutMode: (args: { mode: 'capsule' | 'manage' }) => Promise<unknown>
+    mainHideToTray: () => Promise<unknown>
+    mainShowLibrary: () => Promise<unknown>
     overlayOnSession: (cb: (session: unknown) => void) => () => void
     overlayOnBounds: (cb: (bounds: unknown) => void) => () => void
     overlayOnStepDisplay: (cb: (payload: unknown) => void) => () => void
     overlayOnKMode: (cb: (payload: unknown) => void) => () => void
     overlayOnToast: (cb: (payload: unknown) => void) => () => void
+    overlayOnLocate: (cb: (payload: unknown) => void) => () => void
   }
 }
 

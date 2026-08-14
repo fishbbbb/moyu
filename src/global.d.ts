@@ -57,6 +57,13 @@ declare global {
       overlayToolbarHide: () => Promise<unknown>
       overlaySettingsShow: () => Promise<unknown>
       overlaySettingsHide: () => Promise<unknown>
+      overlaySettingsResize: (args: { width?: number; height?: number }) => Promise<{
+        ok: boolean
+        width: number
+        height: number
+        capped: boolean
+      } | unknown>
+      overlayLocate: () => Promise<unknown>
       overlayAuxHideAll: () => Promise<unknown>
       overlayAuxHideAllSmart: () => Promise<unknown>
       overlayGetBounds: () => Promise<unknown>
@@ -71,11 +78,16 @@ declare global {
       overlayClearWebNextCandidates: () => Promise<unknown>
 
       progressSet: (args: { bookId: string; itemId: string; lineIndex: number }) => Promise<unknown>
+      mainSetLayoutMode: (args: { mode: 'capsule' | 'manage' }) => Promise<unknown>
+      mainHideToTray: () => Promise<unknown>
+      mainShowLibrary: () => Promise<unknown>
       overlayOnSession: (cb: (session: unknown) => void) => () => void
       overlayOnBounds: (cb: (bounds: unknown) => void) => () => void
       overlayOnStepDisplay: (cb: (payload: unknown) => void) => () => void
       overlayOnKMode: (cb: (payload: unknown) => void) => () => void
       overlayOnToast: (cb: (payload: unknown) => void) => () => void
+      overlayOnLocate: (cb: (payload: unknown) => void) => () => void
+      overlayKModeSet: (enabled: boolean) => Promise<unknown>
     }
   }
 }

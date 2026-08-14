@@ -168,14 +168,255 @@ body.overlayAuxHost #root {
 
 .toolBookActions {
   display: flex;
-  gap: 6px;
-  opacity: 0.72;
-  pointer-events: auto;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease;
+  flex-shrink: 0;
 }
 
-.toolBookRow:hover .toolBookActions {
+.toolBookRow:hover .toolBookActions,
+.toolBookRow:focus-within .toolBookActions {
   opacity: 1;
+  pointer-events: auto;
+}
+
+.toolIconBtnDanger {
+  color: #b91c1c;
+}
+
+.toolIconBtnDanger:hover {
+  background: #fef2f2;
+}
+
+/* ---- 迷你书架布局 ---- */
+.toolRootCompact {
+  height: 100vh;
+  padding: 10px 12px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.toolCompactHead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.toolBrandRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolBrandMark {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.toolBrandName {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.toolSearchInputGrow {
+  flex: 1;
+  min-width: 0;
+}
+
+.toolSegRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.toolSeg {
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+}
+
+.toolSeg:hover {
+  color: #374151;
+}
+
+.toolSegActive {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
+.toolSegDivider {
+  width: 1px;
+  height: 14px;
+  margin: 0 6px;
+  background: #e5e7eb;
+  flex-shrink: 0;
+}
+
+.toolActionLink {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #4b5563;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1.3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolActionLink:hover {
+  color: #111827;
+  border-color: #d1d5db;
+  background: #f9fafb;
+}
+
+.toolActionLinkActive {
+  color: var(--primary);
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  font-weight: 600;
+}
+
+.toolCompactBody {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--tool-panel);
+  border-radius: 8px;
+  box-shadow: var(--tool-shadow);
+  padding: 8px;
+}
+
+.toolBookListCompact {
+  height: 100%;
+  overflow: auto;
+}
+
+.toolWebCompact,
+.toolDetailCompact {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toolWebInputCompact {
+  width: 100%;
+  font-size: 14px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+
+.toolPreviewTextCompact {
+  max-height: 180px;
+  height: auto;
+}
+
+.toolVirtualListCompact {
+  flex: 1;
+  min-height: 160px;
+  height: auto;
+}
+
+.toolEllipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.toolBottomBarCompact {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+  padding: 8px 10px;
+  gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow: hidden;
+}
+
+.toolBottomBarCompact .toolPrimaryBtn {
+  flex: 0 0 auto;
+  border-radius: 8px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  line-height: 32px;
+  white-space: nowrap;
+}
+
+.toolBottomBarCompact .toolBarTextBtn {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 30px;
+  white-space: nowrap;
+}
+
+.toolBarIcon {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+.toolBarIcon:hover {
+  background: #f9fafb;
+}
+
+.toolBarIcon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.toolBarTextBtn {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  font-size: 12px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toolBarTextBtn:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.toolBarTextBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .toolRowActionBtn {
@@ -665,5 +906,93 @@ input[type='color'] {
 
 .overlayToolBtnDanger:hover {
   background: rgba(239, 68, 68, 0.4);
+}
+
+/* ---- 阅读框设置（紧凑 Tab） ---- */
+.overlaySettingsTabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+
+.overlaySettingsTab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.overlaySettingsTab:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.overlaySettingsTabActive {
+  color: #fff;
+  border-bottom-color: #60a5fa;
+  font-weight: 600;
+}
+
+.overlayHotkeyRow {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.overlayHotkeyLabel {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.overlayHotkeyKeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.overlayHotkeyChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.overlayHotkeyChipX {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.overlayHotkeyAdd {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  width: 28px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
 }
 

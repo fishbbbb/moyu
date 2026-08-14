@@ -217,6 +217,7 @@ export function OverlaySettingsView() {
   const [kModeEnabled, setKModeEnabled] = useState<boolean>(() => Boolean(getJson(LS_KMODE, { enabled: false } as any)?.enabled))
   const [hotkeys, setHotkeys] = useState<HotkeyConfig>(() => normalizeHotkeysConfig(getJson<HotkeyConfig>(LS_HOTKEYS, getDefaultHotkeys())))
   const [captureAction, setCaptureAction] = useState<HotkeyAction | null>(null)
+  const [settingsTab, setSettingsTab] = useState<'外观' | '操控' | '高级'>('外观')
 
   useEffect(() => {
     document.documentElement.classList.add('overlayAuxHost')
@@ -226,6 +227,11 @@ export function OverlaySettingsView() {
       document.body.classList.remove('overlayAuxHost')
     }
   }, [])
+
+  useEffect(() => {
+    // 打开/切 Tab 时只请求主进程按默认高度 + 可用空间布局；外框高度不随内容膨胀
+    void window.api?.overlaySettingsResize?.({ width: 300 })
+  }, [settingsTab])
 
   useEffect(() => {
     const applyFont = (v: string | null) => {
@@ -395,26 +401,30 @@ export function OverlaySettingsView() {
     <div
       style={
         {
-        height: '100vh',
-        padding: 12,
-        boxSizing: 'border-box',
-        background: 'transparent',
-        // 让“空白背景”可拖拽移动窗口；内部滚动区/控件会覆盖为 no-drag
-        WebkitAppRegion: 'drag'
+          height: '100vh',
+          padding: 8,
+          boxSizing: 'border-box',
+          background: 'transparent',
+          WebkitAppRegion: 'drag',
+          overflow: 'hidden'
         } as any
       }
     >
       <div
+        className="overlaySettingsPanel"
         style={
           {
-          height: '100%',
-          overflow: 'auto',
-          border: '1px solid rgba(255,255,255,0.28)',
-          background: 'rgba(28,28,28,0.98)',
-          borderRadius: 12,
-          padding: 14,
-          color: '#fff',
-          WebkitAppRegion: 'no-drag'
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            border: '1px solid rgba(255,255,255,0.28)',
+            background: 'rgba(28,28,28,0.98)',
+            borderRadius: 12,
+            padding: 12,
+            color: '#fff',
+            boxSizing: 'border-box',
+            WebkitAppRegion: 'no-drag'
           } as any
         }
       >
@@ -423,17 +433,26 @@ export function OverlaySettingsView() {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: 12,
-            marginBottom: 12,
-            paddingBottom: 10,
+            gap: 8,
+            marginBottom: 8,
+            paddingBottom: 8,
             borderBottom: '1px solid rgba(255,255,255,0.12)',
-            WebkitAppRegion: 'drag'
+            WebkitAppRegion: 'drag',
+            flexShrink: 0
           } as any}
         >
           <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.95 }}>阅读框设置</div>
           <button
             className="btn"
-            style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', WebkitAppRegion: 'no-drag' } as any}
+            style={
+              {
+                background: 'rgba(255,255,255,0.12)',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.2)',
+                padding: '4px 10px',
+                WebkitAppRegion: 'no-drag'
+              } as any
+            }
             onClick={() => void window.api?.overlaySettingsHide?.()}
             title="关闭"
           >
@@ -441,328 +460,320 @@ export function OverlaySettingsView() {
           </button>
         </div>
 
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>外观</div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12 }}>文字</span>
-              <input type="color" value={cfg.textColor} onChange={(e) => applyCfg({ ...cfg, textColor: e.target.value })} />
-            </label>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12 }}>文字透明</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={cfg.textOpacity}
-                onChange={(e) => applyCfg({ ...cfg, textOpacity: Number(e.target.value) })}
-              />
-              <span style={{ width: 36, textAlign: 'right', fontSize: 12 }}>{cfg.textOpacity.toFixed(2)}</span>
-            </label>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12 }}>背景</span>
-              <input type="color" value={cfg.bgColor} onChange={(e) => applyCfg({ ...cfg, bgColor: e.target.value })} />
-            </label>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12 }}>透明</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={cfg.bgOpacity}
-                onChange={(e) => applyCfg({ ...cfg, bgOpacity: Number(e.target.value) })}
-              />
-              <span style={{ width: 36, textAlign: 'right', fontSize: 12 }}>{cfg.bgOpacity.toFixed(2)}</span>
-            </label>
-          </div>
+        <div className="overlaySettingsTabs" role="tablist" aria-label="设置分组">
+          {(['外观', '操控', '高级'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={settingsTab === t}
+              className={`overlaySettingsTab ${settingsTab === t ? 'overlaySettingsTabActive' : ''}`}
+              onClick={() => setSettingsTab(t)}
+            >
+              {t}
+            </button>
+          ))}
         </div>
 
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>显示与隐私</div>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <input
-              type="checkbox"
-              checked={Boolean(cfg.contentProtection)}
-              onChange={(e) => applyCfg({ ...cfg, contentProtection: e.target.checked })}
-              style={{ marginTop: 2 }}
-            />
-            <span style={{ fontSize: 12, lineHeight: 1.45 }}>
-              内容保护（降低系统录屏/截图可见性）
-              <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 4 }}>
-                依赖操作系统能力，无法防止拍照或恶意软件；macOS 上部分会议软件、Linux 上可能无效。
-              </span>
-            </span>
-          </label>
-        </div>
+        <div
+          className="overlaySettingsBody"
+          style={
+            {
+              flex: 1,
+              minHeight: 0,
+              overflow: 'auto',
+              WebkitAppRegion: 'no-drag'
+            } as any
+          }
+        >          {settingsTab === '外观' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>颜色与透明</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12 }}>文字</span>
+                    <input type="color" value={cfg.textColor} onChange={(e) => applyCfg({ ...cfg, textColor: e.target.value })} />
+                  </label>
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flex: 1, minWidth: 140 }}>
+                    <span style={{ fontSize: 12 }}>透明</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={cfg.textOpacity}
+                      onChange={(e) => applyCfg({ ...cfg, textOpacity: Number(e.target.value) })}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{cfg.textOpacity.toFixed(2)}</span>
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12 }}>背景</span>
+                    <input type="color" value={cfg.bgColor} onChange={(e) => applyCfg({ ...cfg, bgColor: e.target.value })} />
+                  </label>
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flex: 1, minWidth: 140 }}>
+                    <span style={{ fontSize: 12 }}>透明</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={cfg.bgOpacity}
+                      onChange={(e) => applyCfg({ ...cfg, bgOpacity: Number(e.target.value) })}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{cfg.bgOpacity.toFixed(2)}</span>
+                  </label>
+                </div>
+              </div>
 
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>尺寸与排版</div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12 }}>阅读</span>
-              <select
-                value={(cfg.readMode ?? 'scroll') as any}
-                onChange={(e) => applyCfg({ ...cfg, readMode: (e.target.value === 'page' ? 'page' : 'scroll') as any })}
-                style={{ height: 30 }}
-              >
-                <option value="scroll">滚动（按行推进）</option>
-                <option value="page">翻页（一页一翻）</option>
-              </select>
-            </label>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12 }}>行</span>
-              <input
-                type="number"
-                value={cfg.rows}
-                onChange={(e) => applyCfg({ ...cfg, rows: Number(e.target.value) })}
-                style={{ width: 48 }}
-              />
-            </label>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12 }}>列</span>
-              <input
-                type="number"
-                value={cfg.cols}
-                onChange={(e) => applyCfg({ ...cfg, cols: Number(e.target.value) })}
-                style={{ width: 56 }}
-              />
-            </label>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12 }}>字号</span>
-              <input
-                type="number"
-                min={10}
-                max={64}
-                value={cfg.fontSize}
-                onChange={(e) => {
-                  const fontSize = Number(e.target.value)
-                  let next = { ...cfg, fontSize }
-                  // 调字号时不改阅读框像素尺寸；只按当前阅读框 bounds 自动换算行/列，从而影响可显示文字数量
-                  void (async () => {
-                    const b = (await window.api?.overlayGetBounds?.()) as any
-                    if (b && typeof b.width === 'number' && typeof b.height === 'number') {
-                      const derived = deriveRowsColsFromBounds({ width: b.width, height: b.height, fontSize })
-                      next = { ...next, rows: derived.rows, cols: derived.cols }
-                    }
-                    applyCfg(next)
-                  })()
-                }}
-                style={{ width: 56 }}
-              />
-            </label>
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>
-            提示：拖拽阅读条缩放会自动换算行/列，这里也可手动微调。
-          </div>
-        </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>尺寸与排版</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12 }}>字号</span>
+                    <input
+                      type="number"
+                      min={10}
+                      max={64}
+                      value={cfg.fontSize}
+                      onChange={(e) => {
+                        const fontSize = Number(e.target.value)
+                        let next = { ...cfg, fontSize }
+                        void (async () => {
+                          const b = (await window.api?.overlayGetBounds?.()) as any
+                          if (b && typeof b.width === 'number' && typeof b.height === 'number') {
+                            const derived = deriveRowsColsFromBounds({ width: b.width, height: b.height, fontSize })
+                            next = { ...next, rows: derived.rows, cols: derived.cols }
+                          }
+                          applyCfg(next)
+                        })()
+                      }}
+                      style={{ width: 52 }}
+                    />
+                  </label>
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12 }}>行</span>
+                    <input
+                      type="number"
+                      value={cfg.rows}
+                      onChange={(e) => applyCfg({ ...cfg, rows: Number(e.target.value) })}
+                      style={{ width: 44 }}
+                    />
+                  </label>
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12 }}>列</span>
+                    <input
+                      type="number"
+                      value={cfg.cols}
+                      onChange={(e) => applyCfg({ ...cfg, cols: Number(e.target.value) })}
+                      style={{ width: 52 }}
+                    />
+                  </label>
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>拖拽阅读条也会自动换算行/列。</div>
+              </div>
+            </div>
+          ) : null}
 
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>速度</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, minWidth: 64 }}>字/分钟</span>
-              <input
-                type="range"
-                min={0}
-                max={2000}
-                step={1}
-                value={cfg.charsPerMinute}
-                onChange={(e) => applyCfg({ ...cfg, autoSpeed: true, charsPerMinute: Number(e.target.value) })}
-              />
-              <input
-                type="number"
-                min={0}
-                max={2000}
-                step={1}
-                value={cfg.charsPerMinute}
-                onChange={(e) => applyCfg({ ...cfg, autoSpeed: true, charsPerMinute: Number(e.target.value) })}
-                style={{ width: 76 }}
-              />
-              <span style={{ width: 72, textAlign: 'right', fontSize: 12 }}>{cfg.charsPerMinute}</span>
-            </label>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, minWidth: 64 }}>每次前进</span>
-              {(cfg.readMode ?? 'scroll') === 'page' ? (
-                <>
-                  <input type="number" step={1} value={cfg.rows} onChange={(e) => applyCfg({ ...cfg, rows: Number(e.target.value) })} style={{ width: 72 }} />
-                  <span style={{ width: 56, textAlign: 'right', fontSize: 12 }}>{cfg.rows} 行/页</span>
-                </>
-              ) : (
-                <>
-                  <input type="range" min={1} max={10} step={1} value={cfg.linesPerTick} onChange={(e) => applyCfg({ ...cfg, linesPerTick: Number(e.target.value) })} />
-                  <span style={{ width: 56, textAlign: 'right', fontSize: 12 }}>{cfg.linesPerTick} 行</span>
-                </>
-              )}
-            </label>
-            <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-              <input type="checkbox" checked={cfg.autoSpeed} onChange={(e) => applyCfg({ ...cfg, autoSpeed: e.target.checked })} />
-              <span style={{ fontSize: 12 }}>自动换算</span>
-            </label>
-            {!cfg.autoSpeed ? (
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, minWidth: 64 }}>ms/tick</span>
-                <input type="range" min={80} max={30000} step={10} value={cfg.speedMs} onChange={(e) => applyCfg({ ...cfg, speedMs: Number(e.target.value) })} />
-                <span style={{ fontSize: 12 }}>
-                  {cfg.speedMs} ≈ {cpmHint} 字/分
-                </span>
+          {settingsTab === '操控' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                <input type="checkbox" checked={kModeEnabled} onChange={(e) => void setKMode(e.target.checked)} />
+                <span style={{ fontSize: 12 }}>启用 K 模式（仅阅读条前台生效）</span>
               </label>
-            ) : null}
-          </div>
-        </div>
 
-        <div style={{ marginBottom: 6 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>工具栏图标</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-            <button
-              className="btn"
-              style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', WebkitAppRegion: 'no-drag' } as any}
-              onClick={() => setToolbar(ALL_TOOLBAR_KEYS.map((x) => x.key))}
-              title="全选"
-            >
-              全选
-            </button>
-            <button
-              className="btn"
-              style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', WebkitAppRegion: 'no-drag' } as any}
-              onClick={() => setToolbar([])}
-              title="全不选"
-            >
-              全不选
-            </button>
-          </div>
-          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {ALL_TOOLBAR_KEYS.map((it) => {
-              const checked = toolbarKeys.includes(it.key)
-              return (
-                <label key={it.key} style={{ display: 'flex', gap: 8, alignItems: 'center', WebkitAppRegion: 'no-drag' } as any}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>快捷键</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {(
+                  [
+                    { key: 'playPause', label: '开始/暂停' },
+                    { key: 'pagePrev', label: '上一页' },
+                    { key: 'pageNext', label: '下一页' },
+                    { key: 'chapterPrev', label: '上一章' },
+                    { key: 'chapterNext', label: '下一章' }
+                  ] as Array<{ key: HotkeyAction; label: string }>
+                ).map((it) => {
+                  const curList = Array.isArray(hotkeys?.bindings?.[it.key]) ? (hotkeys?.bindings?.[it.key] as HotkeyBinding[]) : []
+                  const capturing = captureAction === it.key
+                  return (
+                    <div key={it.key} className="overlayHotkeyRow">
+                      <div className="overlayHotkeyLabel">{it.label}</div>
+                      <div className="overlayHotkeyKeys">
+                        {capturing ? (
+                          <span style={{ fontSize: 11, opacity: 0.75 }}>按下按键…</span>
+                        ) : curList.length > 0 ? (
+                          curList.map((b, idx) => (
+                            <span key={`${it.key}-${idx}-${bindingToLabel(b)}`} className="overlayHotkeyChip">
+                              {bindingToLabel(b)}
+                              <button
+                                type="button"
+                                className="overlayHotkeyChipX"
+                                onClick={() => {
+                                  const nextList = curList.filter((_, i) => i !== idx)
+                                  setHotkeysConfig({ bindings: { ...(hotkeys?.bindings ?? {}), [it.key]: nextList } })
+                                }}
+                                title="移除"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))
+                        ) : (
+                          <span style={{ fontSize: 11, opacity: 0.5 }}>未设置</span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="overlayHotkeyAdd"
+                        onClick={() => setCaptureAction(capturing ? null : it.key)}
+                        title={capturing ? '取消' : '添加快捷键'}
+                      >
+                        {capturing ? '取消' : '+'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+              <button
+                className="btn"
+                style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', alignSelf: 'flex-start' } as any}
+                onClick={() => setHotkeysConfig(getDefaultHotkeys())}
+              >
+                恢复默认
+              </button>
+            </div>
+          ) : null}
+
+          {settingsTab === '高级' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>阅读与速度</div>
+                <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12 }}>模式</span>
+                  <select
+                    value={(cfg.readMode ?? 'scroll') as any}
+                    onChange={(e) => applyCfg({ ...cfg, readMode: e.target.value === 'page' ? 'page' : 'scroll' })}
+                    style={{ height: 28 }}
+                  >
+                    <option value="scroll">滚动</option>
+                    <option value="page">翻页</option>
+                  </select>
+                </label>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, minWidth: 56 }}>字/分钟</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={2000}
+                    step={1}
+                    value={cfg.charsPerMinute}
+                    onChange={(e) => applyCfg({ ...cfg, autoSpeed: true, charsPerMinute: Number(e.target.value) })}
+                    style={{ flex: 1, minWidth: 80 }}
+                  />
+                  <span style={{ width: 40, textAlign: 'right', fontSize: 12 }}>{cfg.charsPerMinute}</span>
+                </label>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                  <span style={{ fontSize: 12, minWidth: 56 }}>每次前进</span>
+                  {(cfg.readMode ?? 'scroll') === 'page' ? (
+                    <span style={{ fontSize: 12 }}>{cfg.rows} 行/页</span>
+                  ) : (
+                    <>
+                      <input
+                        type="range"
+                        min={1}
+                        max={10}
+                        step={1}
+                        value={cfg.linesPerTick}
+                        onChange={(e) => applyCfg({ ...cfg, linesPerTick: Number(e.target.value) })}
+                        style={{ flex: 1, minWidth: 80 }}
+                      />
+                      <span style={{ fontSize: 12 }}>{cfg.linesPerTick} 行</span>
+                    </>
+                  )}
+                </label>
+                <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                  <input type="checkbox" checked={cfg.autoSpeed} onChange={(e) => applyCfg({ ...cfg, autoSpeed: e.target.checked })} />
+                  <span style={{ fontSize: 12 }}>自动换算</span>
+                </label>
+                {!cfg.autoSpeed ? (
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                    <span style={{ fontSize: 12, minWidth: 56 }}>ms/tick</span>
+                    <input
+                      type="range"
+                      min={80}
+                      max={30000}
+                      step={10}
+                      value={cfg.speedMs}
+                      onChange={(e) => applyCfg({ ...cfg, speedMs: Number(e.target.value) })}
+                      style={{ flex: 1, minWidth: 80 }}
+                    />
+                    <span style={{ fontSize: 11 }}>
+                      {cfg.speedMs} ≈ {cpmHint}
+                    </span>
+                  </label>
+                ) : null}
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>显示与隐私</div>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <input
                     type="checkbox"
-                    checked={checked}
-                    onChange={(e) => {
-                      const next = e.target.checked ? [...toolbarKeys, it.key] : toolbarKeys.filter((k) => k !== it.key)
-                      setToolbar(next)
-                    }}
+                    checked={Boolean(cfg.contentProtection)}
+                    onChange={(e) => applyCfg({ ...cfg, contentProtection: e.target.checked })}
+                    style={{ marginTop: 2 }}
                   />
-                  <span style={{ fontSize: 12 }}>{it.label}</span>
+                  <span style={{ fontSize: 12, lineHeight: 1.4 }}>
+                    内容保护
+                    <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
+                      降低录屏/截图可见性（视系统能力而定）
+                    </span>
+                  </span>
                 </label>
-              )
-            })}
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>提示：默认全选；取消后工具栏会立刻隐藏对应按钮。</div>
-        </div>
+              </div>
 
-        <div style={{ marginTop: 14, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>键盘操控（K 模式）</div>
-          <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', WebkitAppRegion: 'no-drag' } as any}>
-            <input type="checkbox" checked={kModeEnabled} onChange={(e) => void setKMode(e.target.checked)} />
-            <span style={{ fontSize: 12 }}>启用键盘操控（进入后默认收起工具栏与边框；单击正文或按 Esc 退出）</span>
-          </label>
-        </div>
-
-        <div style={{ marginTop: 6 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>快捷键配置</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {(
-              [
-                { key: 'playPause', label: '开始/暂停' },
-                { key: 'pagePrev', label: '上一页' },
-                { key: 'pageNext', label: '下一页' },
-                { key: 'chapterPrev', label: '上一章' },
-                { key: 'chapterNext', label: '下一章' }
-              ] as Array<{ key: HotkeyAction; label: string }>
-            ).map((it) => {
-              const curList = Array.isArray(hotkeys?.bindings?.[it.key]) ? (hotkeys?.bindings?.[it.key] as HotkeyBinding[]) : []
-              const capturing = captureAction === it.key
-              return (
-                <div
-                  key={it.key}
-                  style={{
-                    display: 'flex',
-                    gap: 10,
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 10px',
-                    borderRadius: 10,
-                    background: 'rgba(255,255,255,0.08)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    WebkitAppRegion: 'no-drag'
-                  } as any}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.95 }}>{it.label}</div>
-                    {capturing ? (
-                      <div style={{ fontSize: 11, opacity: 0.75 }}>请按下要绑定的按键（Esc 取消）…</div>
-                    ) : curList.length > 0 ? (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                        {curList.map((b, idx) => (
-                          <span
-                            key={`${it.key}-${idx}-${bindingToLabel(b)}`}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 6,
-                              padding: '2px 8px',
-                              fontSize: 11,
-                              borderRadius: 999,
-                              background: 'rgba(255,255,255,0.12)',
-                              border: '1px solid rgba(255,255,255,0.2)'
-                            }}
-                          >
-                            {bindingToLabel(b)}
-                            <button
-                              className="btn"
-                              style={{ padding: '0 6px', lineHeight: 1.2, background: 'transparent', border: 'none', color: '#fff' } as any}
-                              onClick={() => {
-                                const nextList = curList.filter((_, i) => i !== idx)
-                                setHotkeysConfig({ bindings: { ...(hotkeys?.bindings ?? {}), [it.key]: nextList } })
-                              }}
-                              title="移除该快捷键"
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 11, opacity: 0.75 }}>当前：未设置</div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <button
-                      className="btn"
-                      style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' } as any}
-                      onClick={() => setCaptureAction(capturing ? null : it.key)}
-                    >
-                      {capturing ? '取消' : '录入'}
-                    </button>
-                    <button
-                      className="btn"
-                      style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.18)' } as any}
-                      onClick={() => setHotkeysConfig({ bindings: { ...(hotkeys?.bindings ?? {}), [it.key]: [] } })}
-                      title="清空该动作的所有快捷键"
-                    >
-                      清空
-                    </button>
-                  </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>工具栏图标</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  <button
+                    className="btn"
+                    style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', padding: '4px 8px' } as any}
+                    onClick={() => setToolbar(ALL_TOOLBAR_KEYS.map((x) => x.key))}
+                  >
+                    全选
+                  </button>
+                  <button
+                    className="btn"
+                    style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', padding: '4px 8px' } as any}
+                    onClick={() => setToolbar([])}
+                  >
+                    全不选
+                  </button>
                 </div>
-              )
-            })}
-          </div>
-          <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button
-              className="btn"
-              style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', WebkitAppRegion: 'no-drag' } as any}
-              onClick={() => setHotkeysConfig(getDefaultHotkeys())}
-              title="恢复默认快捷键"
-            >
-              恢复默认
-            </button>
-            <div style={{ fontSize: 11, opacity: 0.6 }}>
-              说明：快捷键仅在 K 模式开启且阅读条窗口在前台时生效（非全局快捷键）。
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                  {ALL_TOOLBAR_KEYS.map((it) => {
+                    const checked = toolbarKeys.includes(it.key)
+                    return (
+                      <label key={it.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked ? [...toolbarKeys, it.key] : toolbarKeys.filter((k) => k !== it.key)
+                            setToolbar(next)
+                          }}
+                        />
+                        <span style={{ fontSize: 12 }}>{it.label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </div>
     </div>

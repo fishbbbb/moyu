@@ -1,8 +1,11 @@
 node_modules/
+node_modules.bad.*/
+.npm-cache/
 
 # Build outputs
 dist/
 dist-electron/
+release/
 
 # Local env files
 .env
@@ -25,3 +28,5 @@ pnpm-debug.log*
 coverage/
 *.tsbuildinfo
 .cache/
+*.tgz
+_patch_*.py

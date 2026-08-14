@@ -1,6 +1,7 @@
 import JSZip from 'jszip'
 import { XMLParser } from 'fast-xml-parser'
 import { splitTextToChapters } from './chapterSplit'
+import { describeEncodingMethod, fixTextBytes } from './textEncodingFix'
 
 export type ImportedItem = { title: string; contentText: string }
 
@@ -9,6 +10,8 @@ export type ImportedBookPayload = {
   sourceRef: string
   items: ImportedItem[]
   format: 'txt' | 'epub'
+  /** TXT 自动编码结果说明（UTF-8 时为空） */
+  encodingLabel?: string | null
 }
 
 const xml = new XMLParser({
@@ -81,13 +84,15 @@ function isLikelyEpubFrontMatter(input: {
 }
 
 async function importTxt(file: File): Promise<ImportedBookPayload> {
-  const text = await file.text()
-  const items = splitTextToChapters(text)
+  const buf = await file.arrayBuffer()
+  const fixed = fixTextBytes(buf, { clean: true, refine: false })
+  const items = splitTextToChapters(fixed.text)
   return {
     title: file.name.replace(/\.txt$/i, '') || '未命名',
     sourceRef: file.name,
     items,
-    format: 'txt'
+    format: 'txt',
+    encodingLabel: fixed.changed ? describeEncodingMethod(fixed.method) : null
   }
 }
 

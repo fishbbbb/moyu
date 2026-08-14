@@ -95,7 +95,7 @@ export function BookList(props: {
                         props.onRenameBook(b.id)
                       }}
                     >
-                      ✏️
+                      ✎
                     </button>
                     <button
                       className="uiIconBtn"
@@ -105,7 +105,7 @@ export function BookList(props: {
                         props.onDeleteBook(b.id)
                       }}
                     >
-                      🗑️
+                      ×
                     </button>
                   </div>
                 </div>

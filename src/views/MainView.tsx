@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { importLocalBookFile } from '../utils/ebookImport'
+import moyuMarkUrl from '../assets/logo-moyu.svg'
 
 type OverlayConfig = {
   bgOpacity: number
@@ -169,7 +170,9 @@ export function MainView() {
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [showChapters, setShowChapters] = useState(true)
+  const [showChapters, setShowChapters] = useState(false)
+  /** 迷你窗面板：书架 | 网页导入 | 当前书详情/目录 */
+  const [panel, setPanel] = useState<'shelf' | 'web' | 'detail'>('shelf')
 
   const [webUrl, setWebUrl] = useState('')
   const [webLoading, setWebLoading] = useState(false)
@@ -307,11 +310,13 @@ export function MainView() {
       // ensureItemHasContent 内部会刷新 active；这里用 fetched 直接打开阅读条，避免再次等待。
       const lines = toRawLines(fetched)
       await window.api?.overlayPushSession?.({ bookId, itemId, lines, lineIndex, playing: false })
+      await window.api?.mainHideToTray?.()
       return
     }
     // 重要：只推“原始行”，具体按窗口宽度/字号换行交给 Overlay 端做
     const lines = toRawLines(contentText)
     await window.api?.overlayPushSession?.({ bookId, itemId, lines, lineIndex, playing: false })
+    await window.api?.mainHideToTray?.()
   }
 
   async function onImportTxt(file: File) {
@@ -324,7 +329,13 @@ export function MainView() {
         return
       }
       if (payload.format === 'txt' && payload.items.length === 1 && payload.items[0]?.title === '全文') {
-        setNotice('未识别到章节目录，已按“全文”导入（你仍可正常阅读）。')
+        setNotice(
+          payload.encodingLabel
+            ? `未识别到章节目录，已按“全文”导入（${payload.encodingLabel} 解码）。`
+            : '未识别到章节目录，已按“全文”导入（你仍可正常阅读）。'
+        )
+      } else if (payload.format === 'txt' && payload.encodingLabel) {
+        setNotice(`已按 ${payload.encodingLabel} 自动解码并导入。`)
       }
       if (payload.format === 'epub') {
         setNotice(`EPUB 导入完成：共 ${payload.items.length} 章。`)
@@ -496,6 +507,7 @@ export function MainView() {
         extractDebug: res?.extractDebug
       })
       setWebBookPreview(null)
+      setPanel('web')
     } catch (e) {
       const info = parseWebExtractError(e)
       if (info) {
@@ -534,6 +546,7 @@ export function MainView() {
         preview: String(res?.preview ?? '')
       })
       setWebBookPreview(null)
+      setPanel('web')
       setNotice('已使用手动框选兜底提取（L4）。')
     } catch (e) {
       const info = parseWebExtractError(e)
@@ -577,6 +590,7 @@ export function MainView() {
         tocStatus: (res?.tocStatus as 'ready' | 'partial' | 'missing' | undefined) ?? undefined
       })
       setWebPreview(null)
+      setPanel('web')
     } catch (e) {
       const info = parseWebExtractError(e)
       if (info) {
@@ -695,6 +709,8 @@ export function MainView() {
         chapterTitle: String(it.title || '').trim(),
         candidates: res.nextChapterCandidates as Array<{ url: string; label: string; confidence: number; reason: string }>
       })
+      setShowChapters(true)
+      setPanel('detail')
       showToast({
         type: 'success',
         message: '正文已保存。下一章链接不够确定，请在下方「候选」中选一项在网页窗口打开核验。',
@@ -705,7 +721,7 @@ export function MainView() {
     return contentText
   }
 
-  async function enterReadingAuto(bookId: string) {
+  async function enterReadingBar(bookId: string) {
     const detail = ((await window.api?.libraryGetBook?.(bookId)) as any) as BookDetail
     const itemId = detail?.progress?.itemId ?? detail?.items?.[0]?.id
     const lineIndex = detail?.progress?.lineIndex ?? 0
@@ -720,11 +736,13 @@ export function MainView() {
       const item2 = again.items.find((x: any) => x.id === itemId)
       if (!item2) return
       const lines = toRawLines(item2.contentText)
-      await window.api?.overlayPushSession?.({ bookId, itemId, lines, lineIndex, playing: true })
+      await window.api?.overlayPushSession?.({ bookId, itemId, lines, lineIndex, playing: false })
+      await window.api?.mainHideToTray?.()
       return
     }
     const lines = toRawLines(item.contentText)
-    await window.api?.overlayPushSession?.({ bookId, itemId, lines, lineIndex, playing: true })
+    await window.api?.overlayPushSession?.({ bookId, itemId, lines, lineIndex, playing: false })
+    await window.api?.mainHideToTray?.()
   }
 
   useEffect(() => {
@@ -826,7 +844,7 @@ export function MainView() {
   }
 
   const chapterRowHeight = 38
-  const chapterViewportHeight = 300
+  const chapterViewportHeight = 420
   const chapterItems = active?.items ?? []
   const chapterTotal = chapterItems.length
   const chapterStart = Math.max(0, Math.floor(chapterScrollTop / chapterRowHeight) - 6)
@@ -835,7 +853,7 @@ export function MainView() {
   const chapterOffsetY = chapterStart * chapterRowHeight
 
   return (
-    <div className="toolRootSingle">
+    <div className="toolRootSingle toolRootCompact">
       {toast ? (
         <div className={`toolToast ${toast.type === 'error' ? 'toolToastError' : ''}`}>
           <span>{toast.message}</span>
@@ -856,322 +874,364 @@ export function MainView() {
         </div>
       ) : null}
 
-      <main className="toolMainSingle">
-        <section className="toolTop">
-          <div className="toolTopBar">
+      <header className="toolCompactHead">
+        <div className="toolBrandRow">
+          <img className="toolBrandMark" src={moyuMarkUrl} alt="" width={18} height={18} />
+          <span className="toolBrandName">墨鱼</span>
+          <input
+            className="toolSearchInput toolSearchInputGrow"
+            type="text"
+            placeholder="搜索书名 / 域名 / 来源"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <div className="toolSegRow" role="tablist" aria-label="书架筛选">
+          <button
+            type="button"
+            className={`toolSeg ${tab === 'all' && panel === 'shelf' ? 'toolSegActive' : ''}`}
+            onClick={() => {
+              setTab('all')
+              setPanel('shelf')
+            }}
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            className={`toolSeg ${tab === 'file' && panel === 'shelf' ? 'toolSegActive' : ''}`}
+            onClick={() => {
+              setTab('file')
+              setPanel('shelf')
+            }}
+          >
+            本地
+          </button>
+          <button
+            type="button"
+            className={`toolSeg ${tab === 'url' && panel === 'shelf' ? 'toolSegActive' : ''}`}
+            onClick={() => {
+              setTab('url')
+              setPanel('shelf')
+            }}
+          >
+            网页
+          </button>
+          <span className="toolSegDivider" aria-hidden="true" />
+          <button
+            type="button"
+            className={`toolActionLink ${panel === 'web' ? 'toolActionLinkActive' : ''}`}
+            onClick={() => setPanel('web')}
+            title="打开网页采集面板"
+          >
+            采网页
+          </button>
+          <label
+            className="toolActionLink"
+            title="导入本地 TXT / EPUB 文件（TXT 自动识别编码）"
+          >
+            导文件
             <input
-              className="toolSearchInput"
-              type="text"
-              placeholder="搜索书名 / 域名 / 来源"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
+              ref={importTxtInputRef}
+              type="file"
+              accept=".txt,text/plain,.epub,application/epub+zip"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) onImportTxt(f)
+              }}
             />
-            <div className="row" style={{ gap: 8 }}>
-              <button className={`toolChip ${tab === 'all' ? 'toolChipActive' : ''}`} onClick={() => setTab('all')}>全部</button>
-              <button className={`toolChip ${tab === 'file' ? 'toolChipActive' : ''}`} onClick={() => setTab('file')}>本地</button>
-              <button className={`toolChip ${tab === 'url' ? 'toolChipActive' : ''}`} onClick={() => setTab('url')}>网页</button>
-              <label className="toolIconBtn" title="导入 TXT / EPUB">
-                ＋
-                <input
-                  ref={importTxtInputRef}
-                  type="file"
-                  accept=".txt,text/plain,.epub,application/epub+zip"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    if (f) onImportTxt(f)
-                  }}
-                />
-              </label>
-              <button className="toolChip" onClick={() => void onRenameActiveBook()} disabled={!activeBookId} title="重命名当前选中书籍">
-                重命名当前书
+          </label>
+        </div>
+      </header>
+
+      <main className="toolCompactBody">
+        {panel === 'shelf' ? (
+          <div className="toolBookList toolBookListCompact">
+            {filteredBooks.length === 0 ? (
+              <div className="toolEmpty">
+                <div>暂无书籍</div>
+                <div className="hint">点「导文件」导入 TXT/EPUB（自动识别编码），或「采网页」抓网页书</div>
+              </div>
+            ) : (
+              filteredBooks.map((b) => {
+                const checked = Boolean(selectedBookIds[b.id])
+                return (
+                  <div
+                    key={b.id}
+                    className={`toolBookRow ${activeBookId === b.id ? 'toolBookRowActive' : ''}`}
+                    onClick={() => {
+                      setActiveBookId(b.id)
+                      void loadBook(b.id)
+                    }}
+                    onDoubleClick={() => {
+                      void (async () => {
+                        setActiveBookId(b.id)
+                        const detail = ((await window.api?.libraryGetBook?.(b.id)) as any) as BookDetail
+                        const itemId = detail?.progress?.itemId ?? detail?.items?.[0]?.id
+                        const lineIndex = detail?.progress?.lineIndex ?? 0
+                        if (itemId) await startReading(b.id, itemId, lineIndex)
+                      })()
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        e.stopPropagation()
+                        setSelectedBookIds((m) => ({ ...m, [b.id]: e.target.checked }))
+                      }}
+                    />
+                    <div className="toolProgressTrack">
+                      <div className="toolProgressFill" style={{ width: b.lastReadAt ? '100%' : '12%' }} />
+                    </div>
+                    <div className="toolBookMain">
+                      <div className="toolBookTitle">{b.title}</div>
+                      <div className="toolBookSub">{b.domain || b.sourceRef || '未阅读'}</div>
+                    </div>
+                    <div className="toolBookActions">
+                      <button
+                        className="toolIconBtn"
+                        title="目录"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setActiveBookId(b.id)
+                          void loadBook(b.id)
+                          setShowChapters(true)
+                          setPanel('detail')
+                        }}
+                      >
+                        ≡
+                      </button>
+                      <button
+                        className="toolIconBtn"
+                        title="重命名"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void renameBookByPrompt(b.id, b.title)
+                        }}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className="toolIconBtn toolIconBtnDanger"
+                        title="删除"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void onDeleteBooks([b.id])
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        ) : null}
+
+        {panel === 'web' ? (
+          <div className="toolWebCompact">
+            <div className="toolBottomHead">
+              <strong>采网页</strong>
+              <button type="button" className="toolChip" onClick={() => setPanel('shelf')}>
+                返回书架
               </button>
             </div>
-          </div>
-
-          <div className="toolTwoCol">
-            <div className="toolBookList">
-              {filteredBooks.length === 0 ? (
-                <div className="toolEmpty">
-                  <div className="toolEmptyArt">📘</div>
-                  <div>暂无书籍，点击上方导入 TXT / EPUB 或网页</div>
-                </div>
-              ) : (
-                filteredBooks.map((b) => {
-                  const checked = Boolean(selectedBookIds[b.id])
-                  return (
-                    <div
-                      key={b.id}
-                      className={`toolBookRow ${activeBookId === b.id ? 'toolBookRowActive' : ''}`}
-                      onClick={() => {
-                        setActiveBookId(b.id)
-                        void loadBook(b.id)
-                      }}
-                      onDoubleClick={() => {
-                        void (async () => {
-                          setActiveBookId(b.id)
-                          const detail = ((await window.api?.libraryGetBook?.(b.id)) as any) as BookDetail
-                          const itemId = detail?.progress?.itemId ?? detail?.items?.[0]?.id
-                          const lineIndex = detail?.progress?.lineIndex ?? 0
-                          if (itemId) await startReading(b.id, itemId, lineIndex)
-                        })()
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          setSelectedBookIds((m) => ({ ...m, [b.id]: e.target.checked }))
-                        }}
-                      />
-                      <div className="toolProgressTrack"><div className="toolProgressFill" style={{ width: b.lastReadAt ? '100%' : '12%' }} /></div>
-                      <div className="toolBookMain">
-                        <div className="toolBookTitle">{b.title}</div>
-                        <div className="toolBookSub">{b.domain || b.sourceRef || '未阅读'}</div>
-                      </div>
-                      <div className="toolBookActions">
-                        <button
-                          className="toolRowActionBtn"
-                          title="重命名"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void renameBookByPrompt(b.id, b.title)
-                          }}
-                        >
-                          重命名
-                        </button>
-                        <button
-                          className="toolRowActionBtn toolRowActionBtnDanger"
-                          title="删除"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void onDeleteBooks([b.id])
-                          }}
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })
-              )}
+            <div className="toolWebMode">
+              <button className={`toolChip ${webMode === 'article' ? 'toolChipActive' : ''}`} onClick={() => setWebMode('article')}>
+                文章
+              </button>
+              <button className={`toolChip ${webMode === 'book' ? 'toolChipActive' : ''}`} onClick={() => setWebMode('book')}>
+                目录
+              </button>
             </div>
+            <input
+              className="toolWebInput toolWebInputCompact"
+              type="text"
+              value={webUrl}
+              placeholder="输入网址后提取"
+              onChange={(e) => setWebUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void (webMode === 'article' ? onExtractWeb() : onExtractWebBookDetail())
+              }}
+            />
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button className="toolChip" onClick={() => void onOpenWeb()} disabled={webLoading}>
+                打开网页
+              </button>
+              <button
+                className="toolChip toolChipActive"
+                onClick={() => void (webMode === 'article' ? onExtractWeb() : onExtractWebBookDetail())}
+                disabled={webLoading}
+              >
+                {webMode === 'article' ? '提取当前页' : '解析目录'}
+              </button>
+              <button className="toolChip" onClick={() => void onRefreshAndRetry()} disabled={webLoading}>
+                刷新重试
+              </button>
+            </div>
+            <div className={`toolStatusPill ${webErr ? 'toolStatusPillErr' : webLoading ? '' : 'toolStatusPillOk'}`}>
+              {webLoading ? '提取中...' : webErr ? `失败：${webErrCode || 'UNKNOWN'}` : webPreview || webBookPreview ? '成功' : '待提取'}
+            </div>
+            {webErr ? (
+              <button className="toolErrorStrip" onClick={() => setWebErrExpanded((v) => !v)}>
+                {webErr}（点击展开）
+              </button>
+            ) : null}
+            {webErr && webErrExpanded ? (
+              <button className="toolChip" title="当自动提取失败时，手动框选正文区域" onClick={() => void onExtractWebFromSelection()}>
+                手动框选
+              </button>
+            ) : null}
 
-            <div className="toolWebCenter">
-              <div className="toolWebMode">
-                <button className={`toolChip ${webMode === 'article' ? 'toolChipActive' : ''}`} onClick={() => setWebMode('article')}>文章</button>
-                <button className={`toolChip ${webMode === 'book' ? 'toolChipActive' : ''}`} onClick={() => setWebMode('book')}>目录</button>
-              </div>
-              <input
-                className="toolWebInput"
-                type="text"
-                value={webUrl}
-                placeholder="输入网址后回车或点击提取"
-                onChange={(e) => setWebUrl(e.target.value)}
-              />
-              <div className="hint">支持目录页或章节页，系统会自动识别</div>
-              <div className="row" style={{ justifyContent: 'center', marginTop: 8 }}>
-                <button className="toolChip" onClick={() => void onOpenWeb()} disabled={webLoading}>打开网页</button>
-                <button className="toolChip toolChipActive" onClick={() => void (webMode === 'article' ? onExtractWeb() : onExtractWebBookDetail())} disabled={webLoading}>
-                  {webMode === 'article' ? '提取当前页' : '解析目录'}
-                </button>
-                <button className="toolChip" onClick={() => void onRefreshAndRetry()} disabled={webLoading}>刷新重试</button>
-              </div>
-              <div className={`toolStatusPill ${webErr ? 'toolStatusPillErr' : webLoading ? '' : 'toolStatusPillOk'}`}>
-                {webLoading ? '提取中...' : webErr ? `失败：${webErrCode || 'UNKNOWN'}` : webPreview || webBookPreview ? '成功' : '待提取'}
-              </div>
-              {webErr ? (
-                <button className="toolErrorStrip" onClick={() => setWebErrExpanded((v) => !v)}>
-                  {webErr}（点击展开）
-                </button>
-              ) : null}
-              {webErr && webErrExpanded ? (
-                <div className="row" style={{ justifyContent: 'center' }}>
-                  <button
-                    className="toolChip"
-                    title="当自动提取失败时，手动框选正文区域"
-                    onClick={() => void onExtractWebFromSelection()}
-                  >
-                    手动框选
+            {webPreview ? (
+              <div className="toolPreviewPane">
+                <div className="toolBottomHead">
+                  <strong className="toolEllipsis">{webPreview.title}</strong>
+                  <button className="toolChip toolChipActive" onClick={() => void onSaveWeb()}>
+                    保存
                   </button>
                 </div>
-              ) : null}
-            </div>
-          </div>
-        </section>
-
-        <section className="toolBottom">
-          {!active ? (
-            <div className="toolEmpty">未识别到目录，请尝试手动刷新</div>
-          ) : (
-            <>
-              <div className="toolBottomHead">
-                <strong>{active.book.title}</strong>
-                <button className="toolChip" onClick={() => setShowChapters((v) => !v)}>{showChapters ? '收起目录' : '展开目录'}</button>
+                <pre className="toolPreviewText toolPreviewTextCompact">{webPreview.preview || '（暂无预览）'}</pre>
               </div>
-              {showChapters ? (
-                <div
-                  ref={chapterListRef}
-                  className="toolVirtualList"
-                  onScroll={(e) => setChapterScrollTop((e.currentTarget as HTMLDivElement).scrollTop)}
-                >
-                  <div style={{ height: chapterTotal * chapterRowHeight, position: 'relative' }}>
-                    <div style={{ transform: `translateY(${chapterOffsetY}px)` }}>
-                      {chapterVisibleItems.map((it) => (
+            ) : null}
+
+            {webBookPreview ? (
+              <div className="toolPreviewPane">
+                <div className="toolBottomHead">
+                  <strong className="toolEllipsis">{webBookPreview.bookTitle}</strong>
+                  <button className="toolChip toolChipActive" onClick={() => void onImportWebBook()}>
+                    导入
+                  </button>
+                </div>
+                <div className="hint">
+                  {webBookPreview.chapters.length} 章
+                  {webBookPreview.tocStatus === 'partial' ? ' · 可能不完整' : ''}
+                </div>
+                <div className="toolPreviewText toolPreviewTextCompact" style={{ whiteSpace: 'normal' }}>
+                  {webBookPreview.chapters.slice(0, 40).map((c, i) => (
+                    <div key={`${c.url}-${i}`} style={{ marginTop: 4 }} title={c.url}>
+                      {i + 1}. {c.title || `章节 ${i + 1}`}
+                    </div>
+                  ))}
+                  {webBookPreview.chapters.length > 40 ? <div className="hint">…共 {webBookPreview.chapters.length} 章</div> : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {panel === 'detail' ? (
+          <div className="toolDetailCompact">
+            <div className="toolBottomHead">
+              <strong className="toolEllipsis">{active?.book.title || '目录'}</strong>
+              <button type="button" className="toolChip" onClick={() => setPanel('shelf')}>
+                返回
+              </button>
+            </div>
+            {!active ? (
+              <div className="toolEmpty">未加载到目录</div>
+            ) : (
+              <>
+                <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+                  <button className="toolChip" onClick={() => void onRenameActiveBook()} disabled={!activeBookId}>
+                    重命名
+                  </button>
+                  <button className="toolChip" onClick={() => setShowChapters((v) => !v)}>
+                    {showChapters ? '收起目录' : '展开目录'}
+                  </button>
+                </div>
+                {showChapters ? (
+                  <div
+                    ref={chapterListRef}
+                    className="toolVirtualList toolVirtualListCompact"
+                    onScroll={(e) => setChapterScrollTop((e.currentTarget as HTMLDivElement).scrollTop)}
+                  >
+                    <div style={{ height: chapterTotal * chapterRowHeight, position: 'relative' }}>
+                      <div style={{ transform: `translateY(${chapterOffsetY}px)` }}>
+                        {chapterVisibleItems.map((it) => (
+                          <button
+                            key={it.id}
+                            className="toolChapterItem"
+                            onClick={() => {
+                              if (!activeBookId) return
+                              void startReading(activeBookId, it.id, 0)
+                            }}
+                          >
+                            {it.orderIndex + 1}. {it.title}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {webPendingNextChapter ? (
+                  <div className="toolPreviewPane" style={{ marginTop: 10 }}>
+                    <div className="toolBottomHead">
+                      <strong>下一章候选</strong>
+                      <button type="button" className="toolChip" onClick={() => setWebPendingNextChapter(null)}>
+                        关闭
+                      </button>
+                    </div>
+                    <div className="hint" style={{ marginBottom: 8 }}>
+                      当前：{webPendingNextChapter.chapterTitle}
+                    </div>
+                    <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                      {webPendingNextChapter.candidates.map((c, i) => (
                         <button
-                          key={it.id}
-                          className="toolChapterItem"
-                          onClick={() => {
-                            if (!activeBookId) return
-                            void startReading(activeBookId, it.id, 0)
-                          }}
+                          key={`${c.url}-${i}`}
+                          type="button"
+                          className="toolChip"
+                          title={c.url}
+                          onClick={() => void window.api?.webOpen?.({ url: c.url })}
                         >
-                          {it.orderIndex + 1}. {it.title}
+                          {(c.label || `候选 ${i + 1}`).slice(0, 18)}
                         </button>
                       ))}
                     </div>
                   </div>
-                </div>
-              ) : null}
-              {webPendingNextChapter ? (
-                <div className="toolPreviewPane" style={{ marginTop: 10 }}>
-                  <div className="toolBottomHead">
-                    <strong>下一章候选（需人工确认）</strong>
-                    <button type="button" className="toolChip" onClick={() => setWebPendingNextChapter(null)}>
-                      关闭
-                    </button>
-                  </div>
-                  <div className="hint" style={{ marginBottom: 8 }}>
-                    当前：{webPendingNextChapter.chapterTitle}。置信度中等时不会自动跟链，请点击候选在「网页导入」窗口打开，确认后再继续阅读。
-                  </div>
-                  <div className="row" style={{ flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' }}>
-                    {webPendingNextChapter.candidates.map((c, i) => (
-                      <button
-                        key={`${c.url}-${i}`}
-                        type="button"
-                        className="toolChip"
-                        title={c.url}
-                        onClick={() => void window.api?.webOpen?.({ url: c.url })}
-                      >
-                        {(c.label || `候选 ${i + 1}`).slice(0, 22)}
-                        {typeof c.confidence === 'number' ? ` · ${Math.round(c.confidence * 100)}%` : ''}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </>
-          )}
-
-          {webPreview ? (
-            <div className="toolPreviewPane">
-              <div className="toolBottomHead">
-                <strong>{webPreview.title}</strong>
-                <button className="toolChip toolChipActive" onClick={() => void onSaveWeb()}>保存到书架</button>
-              </div>
-              {webPreview.extractDebug &&
-              typeof webPreview.extractDebug === 'object' &&
-              webPreview.extractDebug !== null &&
-              'selectedStrategy' in (webPreview.extractDebug as object) ? (
-                <div className="hint" style={{ marginBottom: 6 }}>
-                  抽取策略：{(webPreview.extractDebug as { selectedStrategy?: string }).selectedStrategy}
-                  {' · '}
-                  候选分{' '}
-                  {JSON.stringify((webPreview.extractDebug as { candidateScores?: Record<string, number> }).candidateScores ?? {})}
-                </div>
-              ) : null}
-              <pre className="toolPreviewText">{webPreview.preview || '（暂无预览）'}</pre>
-            </div>
-          ) : null}
-
-          {webBookPreview ? (
-            <div className="toolPreviewPane">
-              <div className="toolBottomHead">
-                <strong>{webBookPreview.bookTitle}</strong>
-                <button className="toolChip toolChipActive" onClick={() => void onImportWebBook()}>导入目录</button>
-              </div>
-              <div className="hint">
-                入库后共 {webBookPreview.chapters.length + 1} 条（含简介）· 章节 {webBookPreview.chapters.length}
-                {webBookPreview.tocStatus === 'ready'
-                  ? ' · 状态：完整'
-                  : webBookPreview.tocStatus === 'partial'
-                    ? ' · 状态：可能不完整'
-                    : null}
-              </div>
-              <div
-                className="toolPreviewText"
-                style={{ maxHeight: 200, overflow: 'auto', marginTop: 8, whiteSpace: 'normal', fontSize: 13 }}
-              >
-                <div title={webBookPreview.introText || ''}>
-                  <strong>1.</strong> 简介{' '}
-                  <span style={{ opacity: 0.85 }}>
-                    {webBookPreview.introText
-                      ? `${webBookPreview.introText.slice(0, 100)}${webBookPreview.introText.length > 100 ? '…' : ''}`
-                      : '（暂无简介摘要）'}
-                  </span>
-                </div>
-                {webBookPreview.chapters.map((c, i) => (
-                  <div key={`${c.url}-${i}`} style={{ marginTop: 6 }} title={c.url}>
-                    <strong>{i + 2}.</strong> {c.title || `章节 ${i + 1}`}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="toolSettingsGrid" style={{ marginTop: 12 }}>
-            <label className="labelBlock">
-              <span className="hint">字体颜色</span>
-              <input type="color" value={cfg.textColor} onChange={(e) => applyCfg({ ...cfg, textColor: e.target.value })} />
-            </label>
-            <label className="labelBlock">
-              <span className="hint">背景颜色</span>
-              <input type="color" value={cfg.bgColor} onChange={(e) => applyCfg({ ...cfg, bgColor: e.target.value })} />
-            </label>
-            <label className="labelBlock">
-              <span className="hint">透明度 {cfg.bgOpacity.toFixed(2)}</span>
-              <input type="range" min={0} max={1} step={0.01} value={cfg.bgOpacity} onChange={(e) => applyCfg({ ...cfg, bgOpacity: Number(e.target.value) })} />
-            </label>
-            <label className="labelBlock">
-              <span className="hint">字/分钟 {cfg.charsPerMinute}</span>
-              <input
-                type="range"
-                min={1}
-                max={1000}
-                step={1}
-                value={cfg.charsPerMinute}
-                onChange={(e) =>
-                  applyCfg({
-                    ...cfg,
-                    charsPerMinute: Number(e.target.value),
-                    speedMs: calcSpeedMsFromCpm({
-                      cols: cfg.cols,
-                      rows: cfg.rows,
-                      linesPerTick: cfg.linesPerTick,
-                      charsPerMinute: Number(e.target.value)
-                    })
-                  })
-                }
-              />
-            </label>
+                ) : null}
+              </>
+            )}
           </div>
-        </section>
+        ) : null}
       </main>
 
-      <div className="toolBottomBar">
+      <div className="toolBottomBar toolBottomBarCompact">
         <button
           className="toolPrimaryBtn"
+          title="打开阅读条（不自动播放）；书架收进菜单栏/托盘"
+          aria-label="启动阅读条"
           onClick={() => {
-            if (activeBookId) void enterReadingAuto(activeBookId)
+            if (activeBookId) void enterReadingBar(activeBookId)
           }}
           disabled={!activeBookId}
         >
           启动阅读条
         </button>
-        <button className="toolChip" onClick={() => void window.api?.overlaySetPlaying?.(false)}>暂停</button>
-        <button className="toolChip" onClick={() => void window.api?.overlayResume?.({ bookId: activeBookId || '', cols: cfg.cols })} disabled={!activeBookId}>打开阅读条</button>
-        <button className="toolChip" onClick={() => void refreshLibrary(activeBookId || undefined)}>刷新</button>
+        <button
+          className="toolBarTextBtn"
+          title="暂停自动阅读（阅读条仍显示）"
+          aria-label="暂停"
+          onClick={() => void window.api?.overlaySetPlaying?.(false)}
+        >
+          暂停
+        </button>
+        {activeBookId ? (
+          <button
+            className="toolBarTextBtn"
+            title="打开当前书的章节目录"
+            aria-label="目录"
+            onClick={() => {
+              setShowChapters(true)
+              setPanel('detail')
+            }}
+          >
+            目录
+          </button>
+        ) : null}
       </div>
     </div>
   )
